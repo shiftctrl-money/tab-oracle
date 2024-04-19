@@ -1,0 +1,105 @@
+generator client {
+  provider = "prisma-client-js"
+}
+
+datasource db {
+  provider = "postgresql"
+  url      = env("DB_URL")
+}
+
+model feed_provider {
+  id                       String            @id(map: "PK_FEED_PROVIDER") @db.VarChar(100)
+  created_datetime         DateTime          @db.Timestamp(6)
+  updated_datetime         DateTime?         @db.Timestamp(6)
+  pub_address              String            @unique(map: "UNIQ_PUB_ADDR") @db.VarChar(100)
+  index                    String            @db.VarChar(78)
+  activated_since_block    String            @db.VarChar(78)
+  activated_timestamp      String            @db.VarChar(78)
+  disabled_since_block     String?           @db.VarChar(78)
+  disabled_timestamp       String?           @db.VarChar(78)
+  paused                   Boolean?
+  payment_term_block_count String            @db.VarChar(78)
+  payment_token_address    String            @db.VarChar(100)
+  payment_amount           String            @db.VarChar(78)
+  block_count_per_feed     String            @db.VarChar(78)
+  feed_size                String            @db.VarChar(78)
+  whitelisted_ip           String?           @db.VarChar(30)
+  feed_submission          feed_submission[]
+}
+
+model feed_submission {
+  id               String        @id(map: "PK_FEED_SUBMISSION") @db.VarChar(100)
+  created_datetime DateTime      @db.Timestamp(6)
+  feed_provider_id String        @db.VarChar(100)
+  feed_timestamp   BigInt?
+  json_content     String
+  feed_provider    feed_provider @relation(fields: [feed_provider_id], references: [id], onDelete: NoAction, onUpdate: NoAction, map: "FK_FEED_PROV")
+  price_pair       price_pair[]
+}
+
+model price_pair {
+  id                 String          @id(map: "PK_PRICE_PAIR") @db.VarChar(100)
+  feed_submission_id String          @db.VarChar(100)
+  base_currency      String          @db.Char(3)
+  pair_name          String          @db.Char(3)
+  price              String          @db.VarChar(78)
+  feed_submission    feed_submission @relation(fields: [feed_submission_id], references: [id], onDelete: NoAction, onUpdate: NoAction, map: "FK_FEED_SUB")
+}
+
+model tab_registry {
+  id             String   @id(map: "PK_TAB_REGISTRY") @db.VarChar(100)
+  tab_name       String   @unique(map: "UNIQ_TAB_NAME") @db.Char(3)
+  tab_code       String   @db.Char(8)
+  curr_name      String?  @db.VarChar(200)
+  is_clt_alt_del Boolean?
+  is_tab         Boolean?
+  missing_count  Int?
+  revival_count  Int?
+  frozen         Boolean?
+}
+
+model auth {
+  id               String    @id(map: "PK_AUTH") @db.VarChar(100)
+  created_datetime DateTime  @db.Timestamp(6)
+  updated_datetime DateTime? @db.Timestamp(6)
+  user_id          String    @unique(map: "UNIQ_AUTH_USER_ID") @db.VarChar(100)
+  api_token        String    @db.VarChar(200)
+}
+
+model provider_performance {
+  id               String   @id(map: "PK__PROV_PERFORMANCE") @db.VarChar(100)
+  created_datetime DateTime @db.Timestamp(6)
+  provider_count   Int?
+  providers        String?
+  feed_counts      String?
+  trx_ref          String?  @db.VarChar(100)
+}
+
+model median_batch {
+  id                 String         @id(map: "PK_MEDIAN_BATCH") @db.VarChar(100)
+  created_datetime   DateTime       @db.Timestamp(6)
+  batch_interval_sec Int?
+  cid                String?        @db.VarChar(100)
+  trx_ref            String?
+  median_price       median_price[]
+}
+
+model median_price {
+  id              String       @id(map: "PK_MEDIAN_PRICE_5M") @db.VarChar(100)
+  median_batch_id String       @db.VarChar(100)
+  base_currency   String       @db.Char(3)
+  pair_name       String       @db.Char(3)
+  median_value    String       @db.VarChar(78)
+  slot_0          String?      @db.VarChar(100)
+  slot_1          String?      @db.VarChar(100)
+  slot_2          String?      @db.VarChar(100)
+  slot_3          String?      @db.VarChar(100)
+  slot_4          String?      @db.VarChar(100)
+  slot_5          String?      @db.VarChar(100)
+  slot_6          String?      @db.VarChar(100)
+  slot_7          String?      @db.VarChar(100)
+  slot_8          String?      @db.VarChar(100)
+  active_slot     Int?
+  feeds           String?
+  median_batch    median_batch @relation(fields: [median_batch_id], references: [id], onDelete: NoAction, onUpdate: NoAction, map: "FK_MEDIAN_BATCH")
+}

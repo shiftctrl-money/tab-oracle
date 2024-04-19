@@ -1,0 +1,25 @@
+{
+  "name": "tab-oracle",
+  "version": "1.0.0",
+  "description": "shiftCTRL Tab Protocol oracle module",
+  "main": "app.js",
+  "scripts": {
+    "local": "node --env-file=./.env.local src/app.js",
+    "start": "node --env-file=/run/secrets/.env src/app.js"
+  },
+  "author": "",
+  "license": "MIT",
+  "dependencies": {
+    "@prisma/client": "^5.11.0",
+    "axios": "^1.4.0",
+    "decimal.js": "^10.4.3",
+    "ethers": "^5.5.3",
+    "express": "^4.18.3",
+    "node-cron": "^3.0.3",
+    "winston": "^3.12.0",
+    "winston-daily-rotate-file": "^5.0.0"
+  },
+  "devDependencies": {
+    "prisma": "^5.12.1"
+  }
+}
