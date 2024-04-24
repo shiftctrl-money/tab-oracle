@@ -26,7 +26,7 @@ async function cacheParamsJob (BC_NODE_URL, BC_PRICE_ORACLE_MANAGER_CONTRACT, BC
             "function providerCount() external view returns(uint256)",
             "function providerList(uint256) external view returns(address)",
             "function providers(address) external view returns(uint256,uint256,uint256,uint256,uint256,bool)",
-            "function providerInfo(address) external view returns(uint256,address,uint256,uint256,uint256,bytes32)"
+            "function providerInfo(address) external view returns(address,uint256,uint256,uint256,bytes32)"
         ];
         let oracleManagerContract = new ethers.Contract(
             BC_PRICE_ORACLE_MANAGER_CONTRACT,
@@ -67,7 +67,6 @@ async function cacheParamsJob (BC_NODE_URL, BC_PRICE_ORACLE_MANAGER_CONTRACT, BC
                 // disabledOnBlockId == 0 && disabledTimestamp == 0 && !paused && current >= activatedTimestamp
                 if (prov[3].isZero() && prov[4].isZero() && !dbProvider.paused && now >= Number(dbProvider.activated_timestamp)) {
                     // struct Info {
-                    //     uint256 paymentTermInBlockCount;
                     //     address paymentTokenAddress;
                     //     uint256 paymentAmt;
                     //     uint256 blockCountPerFeed;
@@ -75,12 +74,11 @@ async function cacheParamsJob (BC_NODE_URL, BC_PRICE_ORACLE_MANAGER_CONTRACT, BC
                     //     bytes32 whitelistedIPAddr;
                     // }
                     let provInfo = await oracleManagerContract.providerInfo(provAddr);
-                    dbProvider.payment_term_block_count = provInfo[0].toString();
-                    dbProvider.payment_token_address = provInfo[1];
-                    dbProvider.payment_amount = provInfo[2].toString();
-                    dbProvider.block_count_per_feed = provInfo[3].toString();
-                    dbProvider.feed_size = provInfo[4].toString();
-                    dbProvider.whitelisted_ip = provInfo[5] ? ethers.utils.parseBytes32String(provInfo[5]) : ''
+                    dbProvider.payment_token_address = provInfo[0];
+                    dbProvider.payment_amount_per_feed = provInfo[1].toString();
+                    dbProvider.block_count_per_feed = provInfo[2].toString();
+                    dbProvider.feed_size = provInfo[3].toString();
+                    dbProvider.whitelisted_ip = provInfo[4] ? ethers.utils.parseBytes32String(provInfo[4]) : ''
                 }
 
                 const dbRec = await prisma.feed_provider.findUnique({
@@ -205,9 +203,8 @@ function getProviderDetails() {
             disabled_since_block: provMap[p].disabled_since_block,
             disabled_timestamp: provMap[p].disabled_timestamp,
             paused: provMap[p].paused,
-            payment_term_block_count: provMap[p].payment_term_block_count,
             payment_token_address: provMap[p].payment_token_address,
-            payment_amount: provMap[p].payment_amount,
+            payment_amount_per_feed: provMap[p].payment_amount_per_feed,
             block_count_per_feed: provMap[p].block_count_per_feed,
             feed_size: provMap[p].feed_size,
             whitelisted_ip: provMap[p].whitelisted_ip,

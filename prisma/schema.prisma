@@ -18,9 +18,8 @@ model feed_provider {
   disabled_since_block     String?           @db.VarChar(78)
   disabled_timestamp       String?           @db.VarChar(78)
   paused                   Boolean?
-  payment_term_block_count String            @db.VarChar(78)
   payment_token_address    String            @db.VarChar(100)
-  payment_amount           String            @db.VarChar(78)
+  payment_amount_per_feed  String            @db.VarChar(78)
   block_count_per_feed     String            @db.VarChar(78)
   feed_size                String            @db.VarChar(78)
   whitelisted_ip           String?           @db.VarChar(30)
