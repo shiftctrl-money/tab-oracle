@@ -48,9 +48,11 @@ function validateSubmission(reqHeaders, jsonBody, provider) {
             break;
         }
     }
-    if (!bMatched) {
-        logger.info('BLOCKED ACCESS FROM: '+ incomingIps);
-        return {error: 'Unauthorized IP address'};
+    if (provider.whitelisted_ip) {
+        if (!bMatched) {
+            logger.info('BLOCKED ACCESS FROM: '+ incomingIps);
+            return {error: 'Unauthorized IP address'};
+        }
     }
     if (provider.pub_address != jsonBody.data.provider)
         return {error: 'Internal error: unmatched provider address'};
@@ -68,7 +70,7 @@ function validateSubmission(reqHeaders, jsonBody, provider) {
     return {passed: 1};
 }
 
-async function createOrResetApiKey(reqHeaders, provider, secretKey, strIV) {
+async function createOrResetApiKey(reqHeaders, provider, jsonBody, secretKey, strIV) {
     let newApiKey = createApiKey();
     try {
         if (!newApiKey || !secretKey)
@@ -94,7 +96,14 @@ async function createOrResetApiKey(reqHeaders, provider, secretKey, strIV) {
                 return {error: 'Unauthorized IP address'};
             }
         }
-        
+
+        if (!jsonBody.data.timestamp)
+            return {error: 'Required timestamp on JSON body data element'};
+        let now = Math.floor(new Date().getTime() / 1000);
+        let elapsed = now - parseInt(jsonBody.data.timestamp, 10);
+        if (elapsed < 0 || elapsed > 4) // Not accepted if supplied timestamp value exceeded(older) 3 seconds
+            return {error: 'Invalid data.timestamp value'};
+
         let dateNow = new Date();
         let authDetails = {
             updated_datetime: dateNow.toISOString(),

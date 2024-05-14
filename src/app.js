@@ -48,14 +48,20 @@ function resData(jsonData) {
 // Registered oracle provider whitelisted IP address only
 app.post(`/api/v1/auth/create_or_reset_api_token/:provAddr`, async (req, res) => {
     const { provAddr } = req.params;
-    const resetResult = await auth.createOrResetApiKey(req.headers, params.provMap[provAddr], AUTH_SECRET, AUTH_IV);
-    if (resetResult.error) {
-        res.status(400).json(resError(resetResult.error));
+    let authResult = auth.validateSubmission(req.headers, req.body, params.provMap[provAddr]);
+    if (authResult.error) {
+        console.error(authResult.error);
+        res.status(400).json(resError(authResult.error));
     } else {
-        res.json(resData({
-            provider: provAddr,
-            api_token: resetResult.api_token
-        }));
+        const resetResult = await auth.createOrResetApiKey(req.headers, params.provMap[provAddr], req.body, AUTH_SECRET, AUTH_IV);
+        if (resetResult.error) {
+            res.status(400).json(resError(resetResult.error));
+        } else {
+            res.json(resData({
+                provider: provAddr,
+                api_token: resetResult.api_token
+            }));
+        }
     }
 });
 
