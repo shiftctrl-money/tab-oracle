@@ -68,8 +68,14 @@ app.post(`/api/v1/auth/create_or_reset_api_token/:provAddr`, async (req, res) =>
 // Protected endpoint: Registered oracle provider only
 app.post(`/api/v1/feed_provider/:provAddr/feed_submission`, async (req, res) => {
     const { provAddr } = req.params;
-    if (!params.provMap[provAddr].auth) {
+    if (params.provMap[provAddr]) {
+        if (!params.provMap[provAddr].auth) {
+            res.status(401).json(resError(AUTH_ERROR));
+            return;
+        }
+    } else {
         res.status(401).json(resError(AUTH_ERROR));
+        return;
     }
 
     if (auth.verifyApiKey(req.headers['x-api-token'], AUTH_SECRET, AUTH_IV, params.provMap[provAddr].auth.api_token)) {
