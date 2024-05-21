@@ -184,17 +184,20 @@ async function groupAndSendMedianPrices (BC_NODE_URL, BC_KEEPER_PRIVATE_KEY, BC_
         logger.info("Retrieving feed submission older than "+lastExecDateTime.toISOString());
 
         let recs = await prisma.$queryRaw`select
-        fs2.feed_provider_id ,
+        fs2.feed_provider_id,
+        fp.pub_address,
         fs2.json_content,
         pp.id,
         pp.pair_name ,
         pp.price 
     from
         feed_submission fs2,
+        feed_provider fp,
         price_pair pp
     where
         fs2.id = pp.feed_submission_id 
         and fs2.created_datetime > ${lastExecDateTime} and pp.base_currency ='BTC' 
+        and fp.id = fs2.feed_provider_id 
         order by pp.pair_name, fs2.created_datetime desc, TO_NUMBER(pp.price, '999999999999999999999999999999999999999999999999999999999999999999999999999999');`
 
         if (recs.length == 0) {
@@ -252,10 +255,16 @@ async function groupAndSendMedianPrices (BC_NODE_URL, BC_KEEPER_PRIVATE_KEY, BC_
                         'pairPriceId': recs[i].id
                     });
                 }
-            } else {
+            } else { // sorted with pair_name, changed pair_name indicated start of new pair
                 uniqProv = {};
                 curr = recs[i].pair_name;
-                providerSnapshotJson.ORACLE_FEEDS.push(JSON.parse(recs[i].json_content));
+                let existedProvider = false;
+                for(let f = 0; f < providerSnapshotJson.ORACLE_FEEDS.length; f++) {
+                    if (providerSnapshotJson.ORACLE_FEEDS[f].data.provider == recs[i].pub_address)
+                        existedProvider = true;
+                }
+                if (!existedProvider)
+                    providerSnapshotJson.ORACLE_FEEDS.push(JSON.parse(recs[i].json_content));
                 i = i -1; // stay in same row on next loop
             }
         }
