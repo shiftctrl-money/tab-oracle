@@ -4,6 +4,7 @@ const {
     NODE_ENV,
     EXPRESS_PORT,
     BC_NODE_URL,
+    BC_PRICE_ORACLE_PRIVATE_KEY,
     BC_KEEPER_PRIVATE_KEY,
     BC_TAB_REGISTRY_CONTRACT,
     BC_PRICE_ORACLE_MANAGER_CONTRACT,
@@ -136,7 +137,7 @@ async function main() {
         cron.schedule('* * * * *', async () => {
             await params.cacheParamsJob(BC_NODE_URL, BC_PRICE_ORACLE_MANAGER_CONTRACT, BC_TAB_REGISTRY_CONTRACT);
             
-            await medianPrice.groupAndSendMedianPrices(BC_NODE_URL, BC_KEEPER_PRIVATE_KEY, BC_PRICE_ORACLE_MANAGER_CONTRACT, BC_TAB_REGISTRY_CONTRACT, NFT_STORAGE_API_KEY);
+            await medianPrice.groupAndSendMedianPrices(BC_NODE_URL, BC_PRICE_ORACLE_PRIVATE_KEY, BC_KEEPER_PRIVATE_KEY, BC_PRICE_ORACLE_MANAGER_CONTRACT, BC_TAB_REGISTRY_CONTRACT, NFT_STORAGE_API_KEY);
 
             await providerPerformanceJob.submitProvPerformance(BC_NODE_URL, BC_KEEPER_PRIVATE_KEY, BC_PRICE_ORACLE_MANAGER_CONTRACT, params.provMap);
         });
@@ -148,7 +149,7 @@ async function main() {
 
             await params.cacheParamsJob(BC_NODE_URL, BC_PRICE_ORACLE_MANAGER_CONTRACT, BC_TAB_REGISTRY_CONTRACT);
 
-            await medianPrice.groupAndSendMedianPrices(BC_NODE_URL, BC_KEEPER_PRIVATE_KEY, BC_PRICE_ORACLE_MANAGER_CONTRACT, BC_TAB_REGISTRY_CONTRACT, NFT_STORAGE_API_KEY);
+            await medianPrice.groupAndSendMedianPrices(BC_NODE_URL, BC_PRICE_ORACLE_PRIVATE_KEY, BC_KEEPER_PRIVATE_KEY, BC_PRICE_ORACLE_MANAGER_CONTRACT, BC_TAB_REGISTRY_CONTRACT, NFT_STORAGE_API_KEY);
         });
 
         // every 1 hour, e.g. 1.01, 2.01, 3.01

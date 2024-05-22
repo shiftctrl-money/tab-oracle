@@ -164,7 +164,7 @@ async function getLiveMedianPrices(bRequiredDetails) {
     }
 };
 
-async function groupAndSendMedianPrices (BC_NODE_URL, BC_KEEPER_PRIVATE_KEY, BC_PRICE_ORACLE_MANAGER_CONTRACT, BC_TAB_REGISTRY_CONTRACT, NFT_STORAGE_API_KEY) {
+async function groupAndSendMedianPrices (BC_NODE_URL, BC_PRICE_ORACLE_PRIVATE_KEY, BC_KEEPER_PRIVATE_KEY, BC_PRICE_ORACLE_MANAGER_CONTRACT, BC_TAB_REGISTRY_CONTRACT, NFT_STORAGE_API_KEY) {
     const BigNumber = ethers.BigNumber;
     try {
         let providerSnapshotJson = JSON.parse('{"ORACLE_FEEDS":[]}');
@@ -222,6 +222,7 @@ async function groupAndSendMedianPrices (BC_NODE_URL, BC_KEEPER_PRIVATE_KEY, BC_
 
         const provider = new ethers.providers.JsonRpcProvider(BC_NODE_URL);
         const signer = new ethers.Wallet(BC_KEEPER_PRIVATE_KEY, provider);
+        const keeperSigner = new ethers.Wallet(BC_KEEPER_PRIVATE_KEY, provider);
         
         const tabRegistryABI = [
             "function disableTab(bytes3) external",
@@ -298,7 +299,7 @@ async function groupAndSendMedianPrices (BC_NODE_URL, BC_KEEPER_PRIVATE_KEY, BC_
                 let missedCount = tabRec.missing_count + 1;
                 if (missedCount >= 3 && tabRec.frozen == false) { 
                     if (tabRec.is_tab)
-                        await submitTrx_tab(curr, 'disable', signer, BC_TAB_REGISTRY_CONTRACT, tabRegistryContract);
+                        await submitTrx_tab(curr, 'disable', keeperSigner, BC_TAB_REGISTRY_CONTRACT, tabRegistryContract);
                     tabRec = await prisma.tab_registry.update({
                         where: {
                             id: tabRec.id
@@ -326,7 +327,7 @@ async function groupAndSendMedianPrices (BC_NODE_URL, BC_KEEPER_PRIVATE_KEY, BC_
                 if (tabRec.frozen) {
                     if (tabRec.revival_count + 1 >= 3) {
                         if (tabRec.is_tab)
-                            await submitTrx_tab(tabRec.tab_name, 'enable', signer, BC_TAB_REGISTRY_CONTRACT, tabRegistryContract);
+                            await submitTrx_tab(tabRec.tab_name, 'enable', keeperSigner, BC_TAB_REGISTRY_CONTRACT, tabRegistryContract);
                         tabRec = await prisma.tab_registry.update({
                             where: {
                                 id: tabRec.id
