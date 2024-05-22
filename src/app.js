@@ -139,7 +139,7 @@ async function main() {
             
             await medianPrice.groupAndSendMedianPrices(BC_NODE_URL, BC_PRICE_ORACLE_PRIVATE_KEY, BC_KEEPER_PRIVATE_KEY, BC_PRICE_ORACLE_MANAGER_CONTRACT, BC_TAB_REGISTRY_CONTRACT, NFT_STORAGE_API_KEY);
 
-            await providerPerformanceJob.submitProvPerformance(BC_NODE_URL, BC_KEEPER_PRIVATE_KEY, BC_PRICE_ORACLE_MANAGER_CONTRACT, params.provMap);
+            await providerPerformanceJob.submitProvPerformance(BC_NODE_URL, BC_PRICE_ORACLE_PRIVATE_KEY, BC_PRICE_ORACLE_MANAGER_CONTRACT, params.provMap);
         });
     } else {
         await params.retrieveAndSaveCurrencySymbols(CURR_DETAILS);
@@ -154,7 +154,7 @@ async function main() {
 
         // every 1 hour, e.g. 1.01, 2.01, 3.01
         cron.schedule('1 * * * *', async () => {
-            await providerPerformanceJob.submitProvPerformance(BC_NODE_URL, BC_KEEPER_PRIVATE_KEY, BC_PRICE_ORACLE_MANAGER_CONTRACT, params.provMap);
+            await providerPerformanceJob.submitProvPerformance(BC_NODE_URL, BC_PRICE_ORACLE_PRIVATE_KEY, BC_PRICE_ORACLE_MANAGER_CONTRACT, params.provMap);
         });
     }
 
