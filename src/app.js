@@ -71,10 +71,12 @@ app.post(`/api/v1/feed_provider/:provAddr/feed_submission`, async (req, res) => 
     const { provAddr } = req.params;
     if (params.provMap[provAddr]) {
         if (!params.provMap[provAddr].auth) {
+            logger.error("Missing auth on params.provMap");
             res.status(401).json(resError(AUTH_ERROR));
             return;
         }
     } else {
+        logger.error("No matching params.provMap on "+provAddr);
         res.status(401).json(resError(AUTH_ERROR));
         return;
     }
@@ -89,6 +91,7 @@ app.post(`/api/v1/feed_provider/:provAddr/feed_submission`, async (req, res) => 
             res.json(resData(submissionResult));
         }
     } else {
+        logger.error("Invalid api token");
         res.status(401).json(resError(AUTH_ERROR));
     }
 });
