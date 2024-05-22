@@ -221,7 +221,7 @@ async function groupAndSendMedianPrices (BC_NODE_URL, BC_PRICE_ORACLE_PRIVATE_KE
         }
 
         const provider = new ethers.providers.JsonRpcProvider(BC_NODE_URL);
-        const signer = new ethers.Wallet(BC_KEEPER_PRIVATE_KEY, provider);
+        const signer = new ethers.Wallet(BC_PRICE_ORACLE_PRIVATE_KEY, provider);
         const keeperSigner = new ethers.Wallet(BC_KEEPER_PRIVATE_KEY, provider);
         
         const tabRegistryABI = [
