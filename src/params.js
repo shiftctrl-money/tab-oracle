@@ -291,12 +291,25 @@ async function retrieveAndSaveCurrencySymbols(CURR_DETAILS) {
             res = await axios.get(fetchUrl);
 
         if (res.data) {
-            let symbols;
-            if (N == 2) // fastforex
+            let symbols = {};
+            if (fetchUrl.indexOf('api.currencylayer.com') > -1) { // https://currencylayer.com/documentation
                 symbols = res.data.currencies;
-            else
-                symbols = res.data.symbols;
+            } else if (fetchUrl.indexOf('exchangerate-api.com') > -1) { // https://www.exchangerate-api.com/docs/supported-codes-endpoint
+                let currencies = res.data.supported_codes;
+                for(let i=0; i < currencies.length; i++) {
+                    symbols[ currencies[i][0] ] = currencies[i][1];
+                }
+            } else if (fetchUrl.indexOf('api.currencyapi.com') > -1) { // https://currencyapi.com/docs/currencies#supported-currencies
+                let data = res.data.data;
+                for(let code in data) {
+                    symbols[ code ] = data[code].name;
+                }
+            } else {
+                logger.error("Unhandled fetchUrl: "+fetchUrl);
+                return;
+            }
             console.log("Fetched "+Object.keys(symbols).length);
+
             for(let code in symbols) {
                 let existedTab = await prisma.tab_registry.findUnique({
                     where: {
@@ -316,20 +329,24 @@ async function retrieveAndSaveCurrencySymbols(CURR_DETAILS) {
                         console.log('updated '+existedTab.tab_name+' '+symbols[code]);
                     }
                 } else {
-                    let newTab = await prisma.tab_registry.create({
-                        data: {
-                            id: crypto.randomUUID(),
-                            tab_name: code,
-                            tab_code: ethers.utils.hexDataSlice(ethers.utils.formatBytes32String(code), 0, 3),
-                            curr_name: symbols[code],
-                            is_clt_alt_del: false,
-                            is_tab: false,
-                            frozen: false,
-                            missing_count: 0,
-                            revival_count: 0
-                        }
-                    });
-                    console.log('newTab: '+newTab.tab_name);
+                    if (code.length == 3) {
+                        let newTab = await prisma.tab_registry.create({
+                            data: {
+                                id: crypto.randomUUID(),
+                                tab_name: code,
+                                tab_code: ethers.utils.hexDataSlice(ethers.utils.formatBytes32String(code), 0, 3),
+                                curr_name: symbols[code],
+                                is_clt_alt_del: false,
+                                is_tab: false,
+                                frozen: false,
+                                missing_count: 0,
+                                revival_count: 0
+                            }
+                        });
+                        console.log('newTab: '+newTab.tab_name);
+                    } else {
+                        logger.info("Skipped "+code+" "+symbols[code]);
+                    }
                 }
             }
         }
