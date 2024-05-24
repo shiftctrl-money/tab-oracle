@@ -147,11 +147,13 @@ async function main() {
     } else {
         await params.retrieveAndSaveCurrencySymbols(CURR_DETAILS);
 
+        // every 3 minutes, e.g. 1.03, 1.06, 10.57, 11.00
+        cron.schedule('*/3 * * * *', async () => {
+            await params.cacheParamsJob(BC_NODE_URL, BC_PRICE_ORACLE_MANAGER_CONTRACT, BC_TAB_REGISTRY_CONTRACT);
+        });
+
         // every 5 minutes, e.g. 1.00 1.05, 1.10, 2.55, 3.00
         cron.schedule('*/5 * * * *', async () => {
-
-            await params.cacheParamsJob(BC_NODE_URL, BC_PRICE_ORACLE_MANAGER_CONTRACT, BC_TAB_REGISTRY_CONTRACT);
-
             await medianPrice.groupAndSendMedianPrices(BC_NODE_URL, BC_PRICE_ORACLE_PRIVATE_KEY, BC_KEEPER_PRIVATE_KEY, BC_PRICE_ORACLE_MANAGER_CONTRACT, BC_TAB_REGISTRY_CONTRACT, NFT_STORAGE_API_KEY);
         });
 

@@ -10,7 +10,7 @@ The Tab Oracle module is a part of Tab Protocol that receives currrency rates fr
 | Name    | Description | Scheduler |
 | ------- | ----------- | --------- |
 | Feed submission | Authenticate, validate, and store currency rates sent by authorized provider | Adhoc|
-| On/off-chain params | Sync. on-chain and off-chain parameters/configuration | Run on every 5 minutes |
+| On/off-chain params | Sync. on-chain and off-chain parameters/configuration | Run on every 3 minutes |
 | Price submission | Group currency rates, upload snapshot to IPFS, and submit price data on-chain | Run on every 5 minutes |
 | Provider performance | Track provider submissions and submit data on-chain. Provider claims payment based on submitted data | Run on every 60 minutes|
 
