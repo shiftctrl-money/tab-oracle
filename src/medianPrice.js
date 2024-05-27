@@ -349,7 +349,17 @@ async function groupAndSendMedianPrices (BC_NODE_URL, BC_PRICE_ORACLE_PRIVATE_KE
                             }
                         });
                     } 
-                }        
+                } else {
+                    tabRec = await prisma.tab_registry.update({
+                        where: {
+                            id: tabRec.id
+                        },
+                        data: {
+                            missing_count: 0,
+                            revival_count: 0
+                        }
+                    });
+                }
             }// healthy provider count, poolSize > 3
 
             // sort price elements
