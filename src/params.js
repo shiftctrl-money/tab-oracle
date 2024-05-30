@@ -1,6 +1,7 @@
 const logger = require('./logger');
 const {prisma} = require('./prisma');
 const ethers = require('ethers');
+const multicall = require('ethers-multicall-provider');
 const crypto = require('crypto');
 const { default: axios } = require('axios');
 
@@ -19,7 +20,7 @@ function bytes3ToString(arrBytes3) {
 async function cacheParamsJob (BC_NODE_URL, BC_PRICE_ORACLE_MANAGER_CONTRACT, BC_TAB_REGISTRY_CONTRACT) {
     logger.info("cacheParamsJob is started...");
     try {
-        const provider = new ethers.providers.JsonRpcProvider(BC_NODE_URL);
+        const provider = multicall.MulticallWrapper.wrap(new ethers.providers.JsonRpcProvider(BC_NODE_URL));
 
         // read oracle provider related data
         let oracleManagerContractABI = [
@@ -35,11 +36,13 @@ async function cacheParamsJob (BC_NODE_URL, BC_PRICE_ORACLE_MANAGER_CONTRACT, BC
         );
 
         let providerCount = await oracleManagerContract.providerCount();
-        for (let n = 0; n < providerCount; n++) {
-            let provAddr = await oracleManagerContract.providerList(n);
-            // logger.info("Provider " + n + ": "+ provAddr);
-
-            if (provAddr) {
+        let providerPromises = [];
+        for(let n = 0; n < providerCount; n++)
+            providerPromises.push(Promise.resolve(oracleManagerContract.providerList(n)));
+        
+        Promise.all(providerPromises).then(async (results) => {
+            for (let n = 0; n < providerCount; n++) {
+                let provAddr = results[n];
                 let dateNow = new Date();
                 let now = Math.floor(dateNow.getTime() / 1000);
 
@@ -47,66 +50,82 @@ async function cacheParamsJob (BC_NODE_URL, BC_PRICE_ORACLE_MANAGER_CONTRACT, BC
                     updated_datetime: dateNow.toISOString(),
                     pub_address: provAddr
                 };
-                delete dbProvider['auth'];
-                // struct OracleProvider {
-                //     uint256 index;
-                //     uint256 activatedSinceBlockId;
-                //     uint256 activatedTimestamp;
-                //     uint256 disabledOnBlockId;
-                //     uint256 disabledTimestamp;
-                //     bool paused;
-                // }
-                let prov = await oracleManagerContract.providers(provAddr);
-                dbProvider.index = prov[0].toString();
-                dbProvider.activated_since_block = prov[1].toString();
-                dbProvider.activated_timestamp = prov[2].toString();
-                dbProvider.disabled_since_block = prov[3].toString();
-                dbProvider.disabled_timestamp = prov[4].toString();
-                dbProvider.paused = prov[5];
+                
+                Promise.all([
+                    oracleManagerContract.providers(provAddr),
+                    oracleManagerContract.providerInfo(provAddr)
+                ]).then(async (results) => {
+                    delete dbProvider['auth'];
+                    let prov = results[0];
+                    let provInfo = results[1];
 
-                // disabledOnBlockId == 0 && disabledTimestamp == 0 && !paused && current >= activatedTimestamp
-                if (prov[3].isZero() && prov[4].isZero() && !dbProvider.paused && now >= Number(dbProvider.activated_timestamp)) {
-                    // struct Info {
-                    //     address paymentTokenAddress;
-                    //     uint256 paymentAmt;
-                    //     uint256 blockCountPerFeed;
-                    //     uint256 feedSize;
-                    //     bytes32 whitelistedIPAddr;
-                    // }
-                    let provInfo = await oracleManagerContract.providerInfo(provAddr);
-                    dbProvider.payment_token_address = provInfo[0];
-                    dbProvider.payment_amount_per_feed = provInfo[1].toString();
-                    dbProvider.block_count_per_feed = provInfo[2].toString();
-                    dbProvider.feed_size = provInfo[3].toString();
-                    dbProvider.whitelisted_ip = provInfo[4] ? ethers.utils.parseBytes32String(provInfo[4]) : ''
-                }
+                    dbProvider.index = prov[0].toString();
+                    dbProvider.activated_since_block = prov[1].toString();
+                    dbProvider.activated_timestamp = prov[2].toString();
+                    dbProvider.disabled_since_block = prov[3].toString();
+                    dbProvider.disabled_timestamp = prov[4].toString();
+                    dbProvider.paused = prov[5];
 
-                const dbRec = await prisma.feed_provider.findUnique({
-                    where: {
-                        pub_address: provAddr
+                    // disabledOnBlockId == 0 && disabledTimestamp == 0 && !paused && current >= activatedTimestamp
+                    if (prov[3].isZero() && prov[4].isZero() && !dbProvider.paused && now >= Number(dbProvider.activated_timestamp)) {
+                        // struct Info {
+                        //     address paymentTokenAddress;
+                        //     uint256 paymentAmt;
+                        //     uint256 blockCountPerFeed;
+                        //     uint256 feedSize;
+                        //     bytes32 whitelistedIPAddr;
+                        // }
+                        dbProvider.payment_token_address = provInfo[0];
+                        dbProvider.payment_amount_per_feed = provInfo[1].toString();
+                        dbProvider.block_count_per_feed = provInfo[2].toString();
+                        dbProvider.feed_size = provInfo[3].toString();
+                        dbProvider.whitelisted_ip = provInfo[4] ? ethers.utils.parseBytes32String(provInfo[4]) : ''
                     }
-                });
-                if (dbRec) {
-                    const result = await prisma.feed_provider.updateMany({
+
+                    const dbRec = await prisma.feed_provider.findUnique({
                         where: {
                             pub_address: provAddr
-                        },
-                        data: dbProvider
+                        }
                     });
-                    dbProvider.id = dbRec.id;
-                    dbProvider.created_datetime = dbRec.created_datetime;
-                    // logger.info("Update provider: "+ dbProvider.pub_address);
-                } else {
-                    dbProvider.id = crypto.randomUUID();
-                    dbProvider.created_datetime = dbProvider.updated_datetime;
-                    const result = await prisma.feed_provider.create({
-                        data: dbProvider
-                    });
-                    // logger.info("New provider: "+ dbProvider.pub_address);
-                }
-                provMap[provAddr] = dbProvider;
+                    if (dbRec) {
+                        const result = await prisma.feed_provider.updateMany({
+                            where: {
+                                pub_address: provAddr
+                            },
+                            data: dbProvider
+                        });
+                        dbProvider.id = dbRec.id;
+                        dbProvider.created_datetime = dbRec.created_datetime;
+                        // logger.info("Update provider: "+ dbProvider.pub_address);
+                    } else {
+                        dbProvider.id = crypto.randomUUID();
+                        dbProvider.created_datetime = dbProvider.updated_datetime;
+                        const result = await prisma.feed_provider.create({
+                            data: dbProvider
+                        });
+                        // logger.info("New provider: "+ dbProvider.pub_address);
+                    }
+                    provMap[provAddr] = dbProvider;
+
+                    // read auth table
+                    let authRecs = await prisma.auth.findMany();
+                    for(let n=0; n < authRecs.length; n++) {
+                        if (provMap[authRecs[n].user_id]) { // matched provider & save auth details
+                            let authDetails = {
+                                api_token: authRecs[n].api_token,
+                                updated_datetime: authRecs[n].updated_datetime
+                            }
+                            provMap[authRecs[n].user_id].auth = authDetails;
+                        }
+                    }
+
+                }).catch((error) => {
+                    logger.error(error);
+                });
             }
-        }
+        }).catch((error) => {
+            logger.error(error);
+        });
 
         // read TAB data
         let tabRegistryContractABI = [
@@ -122,68 +141,81 @@ async function cacheParamsJob (BC_NODE_URL, BC_PRICE_ORACLE_MANAGER_CONTRACT, BC
             provider
         );
 
-        let activatedTabCount = await tabRegistryContract.activatedTabCount();
-        let ctrlAltDelTabList = await tabRegistryContract.getCtrlAltDelTabList();
-        let depeggedTabs = bytes3ToString(ctrlAltDelTabList);
+        let activatedTabCount = 0;
+        let depeggedTabs;
+        Promise.all([
+            tabRegistryContract.activatedTabCount(),
+            tabRegistryContract.getCtrlAltDelTabList()
+        ]).then(async (results) => {
+            activatedTabCount = results[0];
+            depeggedTabs = bytes3ToString(results[1]);
+            
+            let tabPromises = [];
+            for(let n = 0; n < activatedTabCount; n++)
+                tabPromises.push(Promise.resolve(tabRegistryContract.tabList(n)));
 
-        for (let n = 0; n < activatedTabCount; n++) {
-            let t = await tabRegistryContract.tabList(n);
-            let tabCode = ethers.utils.toUtf8String(t);
-            let bFrozen = await tabRegistryContract.frozenTabs(t);
-            let dbTab = tabMap[tabCode]? tabMap[tabCode]: {
-                tab_name: tabCode,
-                tab_code: ethers.utils.hexDataSlice(ethers.utils.formatBytes32String(tabCode), 0, 3),
-                is_clt_alt_del: false,
-                is_tab: true,
-                frozen: bFrozen
-            };
-            if (depeggedTabs.includes(ethers.utils.toUtf8String(t))) {
-                dbTab.is_clt_alt_del = true;
-            } else {
-                dbTab.is_clt_alt_del = false;
-            }
-            dbTab.is_tab = true;
-            dbTab.frozen = bFrozen;
-            const existedDbTab = await prisma.tab_registry.findUnique({
-                where: {
-                    tab_name: tabCode
-                }
-            });
-            if (existedDbTab) {
-                const result = await prisma.tab_registry.updateMany({
-                    where: {
-                        tab_name: tabCode
-                    },
-                    data: dbTab
+            Promise.all(tabPromises).then(async (tabResults) => {
+                let frozenPromises = [];
+                for(let n = 0; n < activatedTabCount; n++)
+                    frozenPromises.push(Promise.resolve(tabRegistryContract.frozenTabs(tabResults[n])));
+
+                Promise.all(frozenPromises).then(async (frozenResults) => {
+                    for (let n = 0; n < activatedTabCount; n++) {
+                        let t = tabResults[n];
+                        let tabCode = ethers.utils.toUtf8String(t);
+                        let bFrozen = frozenResults[n];
+                        let dbTab = tabMap[tabCode]? tabMap[tabCode]: {
+                            tab_name: tabCode,
+                            tab_code: ethers.utils.hexDataSlice(ethers.utils.formatBytes32String(tabCode), 0, 3),
+                            is_clt_alt_del: false,
+                            is_tab: true,
+                            frozen: bFrozen
+                        };
+                        if (depeggedTabs.includes(ethers.utils.toUtf8String(t))) {
+                            dbTab.is_clt_alt_del = true;
+                        } else {
+                            dbTab.is_clt_alt_del = false;
+                        }
+                        dbTab.is_tab = true;
+                        dbTab.frozen = bFrozen;
+                        const existedDbTab = await prisma.tab_registry.findUnique({
+                            where: {
+                                tab_name: tabCode
+                            }
+                        });
+                        if (existedDbTab) {
+                            const result = await prisma.tab_registry.updateMany({
+                                where: {
+                                    tab_name: tabCode
+                                },
+                                data: dbTab
+                            });
+                            dbTab.id = existedDbTab.id;
+                            dbTab.missing_count = existedDbTab.missing_count;
+                            dbTab.revival_count = existedDbTab.revival_count;
+                        } else {
+                            dbTab.id = crypto.randomUUID();
+                            dbTab.missing_count = 0;
+                            dbTab.revival_count = 0;
+                            const result = await prisma.tab_registry.create({
+                                data: dbTab
+                            });
+                            logger.info("New tab: "+ dbTab.tab_name);
+                        }
+                        tabMap[tabCode] = dbTab;
+                    }
+
+                    logger.info("cacheParamsJob is completed.");
+
+                }).catch((err) => {
+                    logger.error(err);
                 });
-                dbTab.id = existedDbTab.id;
-                dbTab.missing_count = existedDbTab.missing_count;
-                dbTab.revival_count = existedDbTab.revival_count;
-            } else {
-                dbTab.id = crypto.randomUUID();
-                dbTab.missing_count = 0;
-                dbTab.revival_count = 0;
-                const result = await prisma.tab_registry.create({
-                    data: dbTab
-                });
-                logger.info("New tab: "+ dbTab.tab_name);
-            }
-            tabMap[tabCode] = dbTab;
-        }
+            })            
+    
+        }).catch((error) => {
+            logger.error(error);
+        });
 
-        // read auth table
-        let authRecs = await prisma.auth.findMany();
-        for(let n=0; n < authRecs.length; n++) {
-            if (provMap[authRecs[n].user_id]) { // matched provider & save auth details
-                let authDetails = {
-                    api_token: authRecs[n].api_token,
-                    updated_datetime: authRecs[n].updated_datetime
-                }
-                provMap[authRecs[n].user_id].auth = authDetails;
-            }
-        }
-
-        logger.info("cacheParamsJob is completed.");
     } catch (error) {
         logger.error(error);
     }

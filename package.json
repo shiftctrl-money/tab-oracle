@@ -14,6 +14,7 @@
     "axios": "^1.4.0",
     "decimal.js": "^10.4.3",
     "ethers": "^5.5.3",
+    "ethers-multicall-provider": "^3.1.2",
     "express": "^4.18.3",
     "node-cron": "^3.0.3",
     "winston": "^3.12.0",
