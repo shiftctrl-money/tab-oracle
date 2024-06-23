@@ -1,18 +1,18 @@
 
 # Tab Oracle
 
-The Tab Oracle module is a part of Tab Protocol that receives currrency rates from authorized providers, and submit all rates for median value calculation on-chain.
+The Tab Oracle module is a part of Tab Protocol that receives currrency rates from authorized providers, and supply signed median ratas on demand.
 
-![overview](https://lh3.googleusercontent.com/drive-viewer/AKGpihZ6COG8RFCvMdFgMbikNKBOVbYUkyuZjjMgN6ujTe3pDgyjpTDMg3fYHkN_83bjk4Lo-2I7bQWKYAeE-9ieuO4OdGDXQvAh3Q=s2560)
+![overview](https://lh3.googleusercontent.com/drive-viewer/AKGpihbnSouCbuKkRs5xyDSDXRm-YnaQWw4WXBTGuNZ1gZCUp8t9lHc0SxCyYbU_FH7qK3qMyWuzdbLhiVya52xvadKgiyYHeoAgXg=s2560)
 
 
 ## Sub-modules
 | Name    | Description | Scheduler |
 | ------- | ----------- | --------- |
 | Feed submission | Authenticate, validate, and store currency rates sent by authorized provider | Adhoc|
-| On/off-chain params | Sync. on-chain and off-chain parameters/configuration | Run on every 3 minutes |
-| Price submission | Group currency rates, upload snapshot to IPFS, and submit price data on-chain | Run on every 5 minutes |
-| Provider performance | Track provider submissions and submit data on-chain. Provider claims payment based on submitted data | Run on every 60 minutes|
+| On/off-chain params | Sync. on-chain and off-chain parameters/configuration | Run on every 12 minutes |
+| Median price aggregation | Group currency rates to determine median price rate | Run on every 5 minutes |
+| Provider performance | Track provider feed submissions and submit data on-chain used in payment calculation | Run on every 6 hours |
 
 
 ## API Endpoints
@@ -21,7 +21,9 @@ The Tab Oracle module is a part of Tab Protocol that receives currrency rates fr
 | /api/v1/auth/create_or_reset_api_token/[provider_pub_address] | Authorized provider calls this endpoint to generate or reset API token to submit currrency rate data |
 | /api/v1/feed_provider/[provider_pub_address]/feed_submission | Authorized provider calls this endpoint to submit currency rate data |
 | /api/v1/tab/list | Retrieve Tab details |
-| /api/v1/median_price | Protected endpoint reserved for internal usage (e.g. used by tab-ui module) |
+| /api/v1/price_history/[currency] | Protected endpoint to retrieve historical prices |
+| /api/v1/median_price/[currency] | Protected endpoint to retrieve latest median price |
+| /api/v1/median_price/[wallet_address]/[currency] | Proteced endpoint to retrieve signed latest median price |
 | /api/v1/feed_provider/list | Protected endpoint reserved for internal usage (e.g. used by tab-ui module) |
 
 

@@ -13,7 +13,7 @@ async function submitProvPerformance (BC_NODE_URL, BC_PRICE_ORACLE_PRIVATE_KEY, 
             }
         });
         const lastRunTimestamp = lastRunRec? lastRunRec.created_datetime: new Date('2024-01-01');
-        logger.info('lastRunTimestamp: ', lastRunTimestamp);
+        logger.info('lastRunTimestamp: ' + lastRunTimestamp);
         
         var providerList = [];
         var feedCountList = [];
@@ -28,13 +28,14 @@ async function submitProvPerformance (BC_NODE_URL, BC_PRICE_ORACLE_PRIVATE_KEY, 
                     }
                 }
             });
-            if (recs) {
+            logger.info("prov: " + prov + " feed submission count: " + recs.length);
+            if (recs.length > 0) {
                 providerList.push(prov);
                 feedCountList.push(recs.length);
             }
         }
 
-        const provider = new ethers.providers.JsonRpcProvider(BC_NODE_URL);
+        const provider = new ethers.JsonRpcProvider(BC_NODE_URL, undefined, {staticNetwork: true});
         const signer = new ethers.Wallet(BC_PRICE_ORACLE_PRIVATE_KEY, provider);
         let dateNow = new Date();
         let now = Math.floor(dateNow.getTime() / 1000);
@@ -65,7 +66,7 @@ async function submitProvPerformance (BC_NODE_URL, BC_PRICE_ORACLE_PRIVATE_KEY, 
 
             // Fill up unused slot(s)
             for (var n=subProvList.length; n < FEED_COUNT_SUBMISSION_SIZE; n++) {
-                subProvList.push(ethers.constants.AddressZero);
+                subProvList.push(ethers.ZeroAddress);
                 subFeedCountList.push(0);
             }
 
@@ -81,7 +82,7 @@ async function submitProvPerformance (BC_NODE_URL, BC_PRICE_ORACLE_PRIVATE_KEY, 
             };
             const tx = await signer.sendTransaction(transaction);
             const receipt = await tx.wait();
-            logger.info("Provider performance is submitted! Round: "+i+' TX: '+receipt.transactionHash);
+            logger.info("Provider performance is submitted! Round: "+i+' TX: '+receipt.hash);
 
             const newProviderPerformance = await prisma.provider_performance.create({
                 data: {
@@ -90,7 +91,7 @@ async function submitProvPerformance (BC_NODE_URL, BC_PRICE_ORACLE_PRIVATE_KEY, 
                     provider_count: totalRec,
                     providers: subProvList.toString(),
                     feed_counts: subFeedCountList.toString(),
-                    trx_ref: receipt.transactionHash
+                    trx_ref: receipt.hash
                 }
             });
             logger.info('Created provider performance record: ' + newProviderPerformance.id);

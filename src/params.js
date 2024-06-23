@@ -7,27 +7,82 @@ const { default: axios } = require('axios');
 
 var provMap = {};
 var tabMap = {};
+var configMap = {};
 
 function bytes3ToString(arrBytes3) {
     var arrString = [];
     for (let i = 0; i < arrBytes3.length; i++) {
         if (arrBytes3[i] != 0)
-            arrString.push(ethers.utils.toUtf8String(arrBytes3[i]));
+            arrString.push(ethers.toUtf8String(arrBytes3[i]));
     }
     return arrString;
 }
 
-async function cacheParamsJob (BC_NODE_URL, BC_PRICE_ORACLE_MANAGER_CONTRACT, BC_TAB_REGISTRY_CONTRACT) {
+async function loadDBProvider() {
+    const providers = await prisma.feed_provider.findMany();
+    for(let i=0; i < providers.length; i++) {
+        let p = providers[i];
+        provMap[p.pub_address] = {
+            id: p.id,
+            created_datetime: p.created_datetime,
+            updated_datetime: p.updated_datetime,
+            pub_address: p.pub_address,
+            index: p.index,
+            activated_since_block: p.activated_since_block,
+            activated_timestamp: p.activated_timestamp,
+            disabled_since_block: p.disabled_since_block,
+            disabled_timestamp: p.disabled_timestamp,
+            paused: p.paused,
+            payment_token_address: p.payment_token_address,
+            payment_amount_per_feed: p.payment_amount_per_feed,
+            block_count_per_feed: p.block_count_per_feed,
+            feed_size: p.feed_size,
+            whitelisted_ip: p.whitelisted_ip
+        };
+    }
+    let authRecs = await prisma.auth.findMany();
+    for(let n=0; n < authRecs.length; n++) {
+        if (provMap[authRecs[n].user_id]) { // matched provider & save auth details
+            let authDetails = {
+                api_token: authRecs[n].api_token,
+                updated_datetime: authRecs[n].updated_datetime
+            }
+            provMap[authRecs[n].user_id].auth = authDetails;
+        }
+    }
+}
+
+async function loadDBTabRegistry() {
+    const tabList = await prisma.tab_registry.findMany();
+    for(let i=0; i < tabList.length; i++) {
+        let t = tabList[i];
+        let dbTab = {
+            id: t.id,
+            tab_name: t.tab_name,
+            tab_code: t.tab_code,
+            curr_name: t.curr_name,
+            is_clt_alt_del: t.is_clt_alt_del,
+            is_tab: t.is_tab,
+            missing_count: t.missing_count,
+            revival_count: t.revival_count,
+            frozen: t.frozen
+        }
+        tabMap[t.tab_name] = dbTab;
+    }
+}
+
+async function cacheParamsJob (BC_NODE_URL, BC_PRICE_ORACLE_MANAGER_CONTRACT, BC_TAB_REGISTRY_CONTRACT, bLoadDbIfOnChainFailure) {
     logger.info("cacheParamsJob is started...");
     try {
-        const provider = multicall.MulticallWrapper.wrap(new ethers.providers.JsonRpcProvider(BC_NODE_URL));
+        const provider = multicall.MulticallWrapper.wrap(new ethers.JsonRpcProvider(BC_NODE_URL, undefined, {staticNetwork: true}));
 
         // read oracle provider related data
         let oracleManagerContractABI = [
             "function providerCount() external view returns(uint256)",
             "function providerList(uint256) external view returns(address)",
             "function providers(address) external view returns(uint256,uint256,uint256,uint256,uint256,bool)",
-            "function providerInfo(address) external view returns(address,uint256,uint256,uint256,bytes32)"
+            "function providerInfo(address) external view returns(address,uint256,uint256,uint256,bytes32)",
+            "function getConfig() external view returns(uint256,uint256,uint256)"
         ];
         let oracleManagerContract = new ethers.Contract(
             BC_PRICE_ORACLE_MANAGER_CONTRACT,
@@ -35,11 +90,43 @@ async function cacheParamsJob (BC_NODE_URL, BC_PRICE_ORACLE_MANAGER_CONTRACT, BC
             provider
         );
 
-        let providerCount = await oracleManagerContract.providerCount();
+        let providerCount = 0;
+        let provConfPromises = [
+            oracleManagerContract.providerCount(),
+            oracleManagerContract.getConfig()
+        ];
+        await Promise.all(provConfPromises).then( (results) => {
+            providerCount = results[0];
+            logger.info("providerCount: "+providerCount);
+            configs = results[1];
+            if (configs.length > 0) {
+                configMap.defBlockGenerationTimeInSecond = BigInt(configs[0]);
+                configMap.movementDelta = BigInt(configs[1]);
+                configMap.inactivePeriod = BigInt(configs[2]);
+                logger.info("Updated configMap from on-chain data");
+            }
+            if (configMap.defBlockGenerationTimeInSecond == 0 || configMap.defBlockGenerationTimeInSecond == '')
+                configMap.defBlockGenerationTimeInSecond = BigInt(12);
+            if (configMap.movementDelta == 0 || configMap.movementDelta == '')
+                configMap.movementDelta = BigInt(500);
+            if (configMap.inactivePeriod == 0 || configMap.inactivePeriod == '')
+                configMap.inactivePeriod = BigInt(3600);
+        }).catch((error) => {
+            logger.error(error);
+            if (bLoadDbIfOnChainFailure) {
+                configMap.defBlockGenerationTimeInSecond = BigInt(12);
+                configMap.movementDelta = BigInt(500);
+                configMap.inactivePeriod = BigInt(3600);
+                loadDBProvider();
+                loadDBTabRegistry();
+                logger.info('Failed to retrieve on-chain data, loaded DB state...');
+            }
+        });
+
         let providerPromises = [];
         for(let n = 0; n < providerCount; n++)
             providerPromises.push(Promise.resolve(oracleManagerContract.providerList(n)));
-        
+
         Promise.all(providerPromises).then(async (results) => {
             for (let n = 0; n < providerCount; n++) {
                 let provAddr = results[n];
@@ -67,7 +154,7 @@ async function cacheParamsJob (BC_NODE_URL, BC_PRICE_ORACLE_MANAGER_CONTRACT, BC
                     dbProvider.paused = prov[5];
 
                     // disabledOnBlockId == 0 && disabledTimestamp == 0 && !paused && current >= activatedTimestamp
-                    if (prov[3].isZero() && prov[4].isZero() && !dbProvider.paused && now >= Number(dbProvider.activated_timestamp)) {
+                    if (prov[3] == 0 && prov[4] == 0 && !dbProvider.paused && now >= Number(dbProvider.activated_timestamp)) {
                         // struct Info {
                         //     address paymentTokenAddress;
                         //     uint256 paymentAmt;
@@ -79,7 +166,7 @@ async function cacheParamsJob (BC_NODE_URL, BC_PRICE_ORACLE_MANAGER_CONTRACT, BC
                         dbProvider.payment_amount_per_feed = provInfo[1].toString();
                         dbProvider.block_count_per_feed = provInfo[2].toString();
                         dbProvider.feed_size = provInfo[3].toString();
-                        dbProvider.whitelisted_ip = provInfo[4] ? ethers.utils.parseBytes32String(provInfo[4]) : ''
+                        dbProvider.whitelisted_ip = provInfo[4] ? ethers.decodeBytes32String(provInfo[4]) : ''
                     }
 
                     const dbRec = await prisma.feed_provider.findUnique({
@@ -148,6 +235,7 @@ async function cacheParamsJob (BC_NODE_URL, BC_PRICE_ORACLE_MANAGER_CONTRACT, BC
             tabRegistryContract.getCtrlAltDelTabList()
         ]).then(async (results) => {
             activatedTabCount = results[0];
+            logger.info("activatedTabCount: "+activatedTabCount);
             depeggedTabs = bytes3ToString(results[1]);
             
             let tabPromises = [];
@@ -162,16 +250,16 @@ async function cacheParamsJob (BC_NODE_URL, BC_PRICE_ORACLE_MANAGER_CONTRACT, BC
                 Promise.all(frozenPromises).then(async (frozenResults) => {
                     for (let n = 0; n < activatedTabCount; n++) {
                         let t = tabResults[n];
-                        let tabCode = ethers.utils.toUtf8String(t);
+                        let tabCode = ethers.toUtf8String(t);
                         let bFrozen = frozenResults[n];
                         let dbTab = tabMap[tabCode]? tabMap[tabCode]: {
                             tab_name: tabCode,
-                            tab_code: ethers.utils.hexDataSlice(ethers.utils.formatBytes32String(tabCode), 0, 3),
+                            tab_code: ethers.dataSlice(ethers.toUtf8Bytes(tabCode), 0, 3),
                             is_clt_alt_del: false,
                             is_tab: true,
                             frozen: bFrozen
                         };
-                        if (depeggedTabs.includes(ethers.utils.toUtf8String(t))) {
+                        if (depeggedTabs.includes(ethers.toUtf8String(t))) {
                             dbTab.is_clt_alt_del = true;
                         } else {
                             dbTab.is_clt_alt_del = false;
@@ -366,7 +454,7 @@ async function retrieveAndSaveCurrencySymbols(CURR_DETAILS) {
                             data: {
                                 id: crypto.randomUUID(),
                                 tab_name: code,
-                                tab_code: ethers.utils.hexDataSlice(ethers.utils.formatBytes32String(code), 0, 3),
+                                tab_code: ethers.dataSlice(ethers.toUtf8Bytes(code), 0, 3),
                                 curr_name: symbols[code],
                                 is_clt_alt_del: false,
                                 is_tab: false,
@@ -394,5 +482,6 @@ exports.params = {
     getTabDetails,
     retrieveAndSaveCurrencySymbols,
     provMap,
-    tabMap
+    tabMap,
+    configMap
 };

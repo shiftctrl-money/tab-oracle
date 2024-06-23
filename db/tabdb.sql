@@ -83,9 +83,23 @@ CREATE TABLE tabdb.median_price (
 	slot_7 character varying(100),
 	slot_8 character varying(100),
 	active_slot int,
+	tab_status CHAR(1),
 	feeds TEXT,
+	refresh_median BOOLEAN,
+	movement_delta VARCHAR(78),
+	overwritten_median VARCHAR(78),
 	CONSTRAINT "FK_MEDIAN_BATCH" FOREIGN KEY (median_batch_id) REFERENCES tabdb.median_batch (id) MATCH FULL,
 	CONSTRAINT "PK_MEDIAN_PRICE" PRIMARY KEY (id)
+);
+
+DROP TABLE IF EXISTS tabdb.active_median;
+CREATE TABLE tabdb.active_median (
+	id character varying(100) NOT NULL,
+	last_updated timestamp,
+	median_price_id character varying(100),
+	pair_name CHAR(3) NOT NULL,
+	CONSTRAINT "FK_MEDIAN_PRICE" FOREIGN KEY (median_price_id) REFERENCES tabdb.median_price (id) MATCH FULL,
+	CONSTRAINT "PK_ACTIVE_MEDIAN" PRIMARY KEY (id)
 );
 
 DROP TABLE IF EXISTS tabdb.tab_registry;
@@ -113,3 +127,12 @@ CREATE TABLE tabdb.provider_performance (
 	trx_ref VARCHAR(100),
 	CONSTRAINT "PK__PROV_PERFORMANCE" PRIMARY KEY (id)
 );
+
+CREATE INDEX feed_provider_pub_address_idx ON tabdb.feed_provider (pub_address);
+CREATE INDEX tab_registry_tab_name_idx ON tabdb.tab_registry (tab_name);
+CREATE INDEX price_pair_pair_name_idx ON tabdb.price_pair (pair_name);
+CREATE INDEX median_batch_created_datetime_idx ON tabdb.median_batch (created_datetime DESC);
+CREATE INDEX median_price_pair_name_idx ON tabdb.median_price (pair_name);
+CREATE INDEX active_median_last_updated_idx ON tabdb.active_median (last_updated DESC);
+CREATE INDEX active_median_pair_name_idx ON tabdb.active_median (pair_name,last_updated DESC);
+CREATE INDEX feed_submission_created_datetime_idx ON tabdb.feed_submission (created_datetime,feed_provider_id);

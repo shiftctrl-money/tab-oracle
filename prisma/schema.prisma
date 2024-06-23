@@ -8,22 +8,24 @@ datasource db {
 }
 
 model feed_provider {
-  id                       String            @id(map: "PK_FEED_PROVIDER") @db.VarChar(100)
-  created_datetime         DateTime          @db.Timestamp(6)
-  updated_datetime         DateTime?         @db.Timestamp(6)
-  pub_address              String            @unique(map: "UNIQ_PUB_ADDR") @db.VarChar(100)
-  index                    String            @db.VarChar(78)
-  activated_since_block    String            @db.VarChar(78)
-  activated_timestamp      String            @db.VarChar(78)
-  disabled_since_block     String?           @db.VarChar(78)
-  disabled_timestamp       String?           @db.VarChar(78)
-  paused                   Boolean?
-  payment_token_address    String            @db.VarChar(100)
-  payment_amount_per_feed  String            @db.VarChar(78)
-  block_count_per_feed     String            @db.VarChar(78)
-  feed_size                String            @db.VarChar(78)
-  whitelisted_ip           String?           @db.VarChar(30)
-  feed_submission          feed_submission[]
+  id                      String            @id(map: "PK_FEED_PROVIDER") @db.VarChar(100)
+  created_datetime        DateTime          @db.Timestamp(6)
+  updated_datetime        DateTime?         @db.Timestamp(6)
+  pub_address             String            @unique(map: "UNIQ_PUB_ADDR") @db.VarChar(100)
+  index                   String            @db.VarChar(78)
+  activated_since_block   String            @db.VarChar(78)
+  activated_timestamp     String            @db.VarChar(78)
+  disabled_since_block    String?           @db.VarChar(78)
+  disabled_timestamp      String?           @db.VarChar(78)
+  paused                  Boolean?
+  payment_token_address   String            @db.VarChar(100)
+  payment_amount_per_feed String            @db.VarChar(78)
+  block_count_per_feed    String            @db.VarChar(78)
+  feed_size               String            @db.VarChar(78)
+  whitelisted_ip          String?           @db.VarChar(30)
+  feed_submission         feed_submission[]
+
+  @@index([pub_address])
 }
 
 model feed_submission {
@@ -34,6 +36,8 @@ model feed_submission {
   json_content     String
   feed_provider    feed_provider @relation(fields: [feed_provider_id], references: [id], onDelete: NoAction, onUpdate: NoAction, map: "FK_FEED_PROV")
   price_pair       price_pair[]
+
+  @@index([created_datetime, feed_provider_id], map: "feed_submission_created_datetime_idx")
 }
 
 model price_pair {
@@ -43,6 +47,8 @@ model price_pair {
   pair_name          String          @db.Char(3)
   price              String          @db.VarChar(78)
   feed_submission    feed_submission @relation(fields: [feed_submission_id], references: [id], onDelete: NoAction, onUpdate: NoAction, map: "FK_FEED_SUB")
+
+  @@index([pair_name])
 }
 
 model tab_registry {
@@ -55,6 +61,8 @@ model tab_registry {
   missing_count  Int?
   revival_count  Int?
   frozen         Boolean?
+
+  @@index([tab_name])
 }
 
 model auth {
@@ -81,24 +89,44 @@ model median_batch {
   cid                String?        @db.VarChar(100)
   trx_ref            String?
   median_price       median_price[]
+
+  @@index([created_datetime(sort: Desc)])
 }
 
 model median_price {
-  id              String       @id(map: "PK_MEDIAN_PRICE_5M") @db.VarChar(100)
-  median_batch_id String       @db.VarChar(100)
-  base_currency   String       @db.Char(3)
-  pair_name       String       @db.Char(3)
-  median_value    String       @db.VarChar(78)
-  slot_0          String?      @db.VarChar(100)
-  slot_1          String?      @db.VarChar(100)
-  slot_2          String?      @db.VarChar(100)
-  slot_3          String?      @db.VarChar(100)
-  slot_4          String?      @db.VarChar(100)
-  slot_5          String?      @db.VarChar(100)
-  slot_6          String?      @db.VarChar(100)
-  slot_7          String?      @db.VarChar(100)
-  slot_8          String?      @db.VarChar(100)
-  active_slot     Int?
-  feeds           String?
-  median_batch    median_batch @relation(fields: [median_batch_id], references: [id], onDelete: NoAction, onUpdate: NoAction, map: "FK_MEDIAN_BATCH")
+  id                 String          @id(map: "PK_MEDIAN_PRICE") @db.VarChar(100)
+  median_batch_id    String          @db.VarChar(100)
+  base_currency      String          @db.Char(3)
+  pair_name          String          @db.Char(3)
+  median_value       String          @db.VarChar(78)
+  slot_0             String?         @db.VarChar(100)
+  slot_1             String?         @db.VarChar(100)
+  slot_2             String?         @db.VarChar(100)
+  slot_3             String?         @db.VarChar(100)
+  slot_4             String?         @db.VarChar(100)
+  slot_5             String?         @db.VarChar(100)
+  slot_6             String?         @db.VarChar(100)
+  slot_7             String?         @db.VarChar(100)
+  slot_8             String?         @db.VarChar(100)
+  active_slot        Int?
+  feeds              String?
+  refresh_median     Boolean?
+  overwritten_median String?         @db.VarChar(78)
+  tab_status         String?         @db.Char(1)
+  movement_delta     String?         @db.VarChar(78)
+  active_median      active_median[]
+  median_batch       median_batch    @relation(fields: [median_batch_id], references: [id], onDelete: NoAction, onUpdate: NoAction, map: "FK_MEDIAN_BATCH")
+
+  @@index([pair_name])
+}
+
+model active_median {
+  id              String        @id(map: "PK_ACTIVE_MEDIAN") @db.VarChar(100)
+  last_updated    DateTime?     @db.Timestamp(6)
+  median_price_id String?       @db.VarChar(100)
+  pair_name       String        @db.Char(3)
+  median_price    median_price? @relation(fields: [median_price_id], references: [id], onDelete: NoAction, onUpdate: NoAction, map: "FK_MEDIAN_PRICE")
+
+  @@index([last_updated(sort: Desc)])
+  @@index([pair_name, last_updated(sort: Desc)], map: "active_median_pair_name_idx")
 }

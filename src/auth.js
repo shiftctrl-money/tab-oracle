@@ -59,7 +59,7 @@ function validateSubmission(reqHeaders, jsonBody, provider) {
     
     try {
         const payload = JSON.stringify(jsonBody.data);
-        const recoveredAddress = ethers.utils.verifyMessage(ethers.utils.id('\x19Ethereum Signed Message:\n' + payload.length + payload), jsonBody.signature);
+        const recoveredAddress = ethers.verifyMessage(ethers.id('\x19Ethereum Signed Message:\n' + payload.length + payload), jsonBody.signature);
         if (provider.pub_address != recoveredAddress)
             return {error: 'Invalid signature'};
     } catch(e) {
@@ -132,8 +132,6 @@ async function createOrResetApiKey(reqHeaders, provider, jsonBody, secretKey, st
             logger.error('ERROR invalid result on resetApiKeyJob for provider: '+provider.pub_address+' result: '+result);
             return {error: 'Internal Error: database write'};
         }
-
-        // TODO send api key to provider's ENS record email
 
         return {'encryptedApiKey': encryptedApiKey, 'api_token': newApiKey};
 

@@ -17,9 +17,7 @@ function appendZero(v, p) {
 
 async function saveFeeds (providerRec, jsonBody) {
     try {
-        const BigNumber = ethers.BigNumber;
-        const utils = ethers.utils;
-        const bnOnePricisionUnit = BigNumber.from(appendZero(1, PRICISION_UNIT));
+        const bnOnePricisionUnit = BigInt(appendZero(1, PRICISION_UNIT));
         let dateNow = new Date();
         let now = Math.floor(dateNow.getTime() / 1000);
 
@@ -64,8 +62,8 @@ async function saveFeeds (providerRec, jsonBody) {
             }
         });
 
-        let usdbtcRate = utils.parseUnits(new Decimal(quotes[USDBTC]).toString(), TOKEN_DECIMAL);
-        let btcusdRate = bnOnePricisionUnit.mul(bnOnePricisionUnit).div(BigNumber.from(usdbtcRate.toString()));
+        let usdbtcRate = ethers.parseUnits(new Decimal(quotes[USDBTC]).toString(), TOKEN_DECIMAL);
+        let btcusdRate = (bnOnePricisionUnit * bnOnePricisionUnit) / usdbtcRate;
 
         let tabCount = 0;
         let pricePairRecs = [];
@@ -74,7 +72,7 @@ async function saveFeeds (providerRec, jsonBody) {
             if (v1.isNaN())
                 return {error: 'Invalid '+key};
 
-            let v2 = utils.parseUnits(v1.toString(), TOKEN_DECIMAL);
+            let v2 = ethers.parseUnits(v1.toString(), TOKEN_DECIMAL);
             let price = 0;
 
             let strTab = '';
@@ -85,16 +83,16 @@ async function saveFeeds (providerRec, jsonBody) {
             else
                 return {error: 'Invalid quotes item '+key};    
 
-            let tab = utils.hexDataSlice(utils.formatBytes32String(strTab), 0, 3); // bytes3 equivalent
+            let tab = ethers.dataSlice(ethers.toUtf8Bytes(strTab), 0, 3); // bytes3 equivalent
 
             if (key.indexOf(USDBTC) > -1) {
                 // incoming USDBTC key is converted to USD tab
                 strTab = 'USD';                
-                price = BigNumber.from(btcusdRate.toString()).div(BigNumber.from(appendZero(1, PRICISION_UNIT + PRICISION_UNIT - TOKEN_DECIMAL - TOKEN_DECIMAL)));
+                price = btcusdRate / BigInt(appendZero(1, PRICISION_UNIT + PRICISION_UNIT - TOKEN_DECIMAL - TOKEN_DECIMAL));
             } else // On PriceOracle contract, all prices are representing BTC/TAB rate.
-                price = BigNumber.from(btcusdRate.toString()).mul(BigNumber.from(v2.toString())).div(BigNumber.from(appendZero(1, PRICISION_UNIT + (PRICISION_UNIT - TOKEN_DECIMAL))));
+                price = (btcusdRate * v2) / BigInt(appendZero(1, PRICISION_UNIT + (PRICISION_UNIT - TOKEN_DECIMAL)));
 
-            if (price.isZero()) {
+            if (price == 0) {
                 logger.error('Zero price on currency ' + strTab + '. v1: ' + v1 + ' v2: ' + v2 + ' btcusdRate: ' + btcusdRate.toString());
                 return {error: 'Invalid zero value from price calculation on key '+key};
             }
@@ -124,8 +122,8 @@ async function saveFeeds (providerRec, jsonBody) {
         logger.error(e);
         return {error: 'Internal server error'};
     }
-};
+}
 
 exports.feedSubmissionJob = {
     saveFeeds
-};
+}

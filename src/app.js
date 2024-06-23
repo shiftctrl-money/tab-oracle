@@ -8,6 +8,7 @@ const {
     BC_KEEPER_PRIVATE_KEY,
     BC_TAB_REGISTRY_CONTRACT,
     BC_PRICE_ORACLE_MANAGER_CONTRACT,
+    BC_PRICE_ORACLE_CONTRACT,
     NFT_STORAGE_API_KEY,
     CURR_DETAILS,
     AUTH_SECRET,
@@ -66,6 +67,10 @@ app.post(`/api/v1/auth/create_or_reset_api_token/:provAddr`, async (req, res) =>
     }
 });
 
+app.get(`/api/v1/tab/list`, async (req, res) => {
+    res.json(resData(await params.getTabDetails()));
+});
+
 // Protected endpoint: Registered oracle provider only
 app.post(`/api/v1/feed_provider/:provAddr/feed_submission`, async (req, res) => {
     const { provAddr } = req.params;
@@ -96,21 +101,40 @@ app.post(`/api/v1/feed_provider/:provAddr/feed_submission`, async (req, res) => 
     }
 });
 
-app.get(`/api/v1/tab/list`, async (req, res) => {
-    res.json(resData(await params.getTabDetails()));
-});
-
-// Protected endpoint
-app.get(`/api/v1/median_price`, async (req, res) => {
-    logger.info('median_price request from ' + req.headers['x-real-ip']);
+// Protected endpoint: retrieve historical feed prices
+app.get(`/api/v1/price_history/:curr`, async (req, res) => {
+    logger.info('price_history request from ' + req.headers['x-real-ip']);
+    const { curr } = req.params;
     if (auth.verifyApiKey(req.headers['x-api-token'], AUTH_SECRET, AUTH_IV, PRIVATE_TOKEN)) {
-        res.json(await medianPrice.getLiveMedianPrices(req.query.details == '1'));
+        res.json(await medianPrice.getHistoricalPrices(curr, req.query.maxCount));
     } else {
         res.status(401).json(resError(AUTH_ERROR));
     }
 });
 
-// Protected endpoint
+// Protected endpoint: retrieve current median prices
+app.get(`/api/v1/median_price/:curr?`, async (req, res) => {
+    logger.info('median_price request from ' + req.headers['x-real-ip']);
+    const { curr } = req.params;
+    if (auth.verifyApiKey(req.headers['x-api-token'], AUTH_SECRET, AUTH_IV, PRIVATE_TOKEN)) {
+        res.json(await medianPrice.getLiveMedianPrices((req.query.details == '1'), (req.query.tabOnly == '1'), curr, params.configMap));
+    } else {
+        res.status(401).json(resError(AUTH_ERROR));
+    }
+});
+
+// Protected endpoint: get signed price data to be used on vault related operations
+app.get(`/api/v1/median_price/:userAddr/:curr`, async (req, res) => {
+    logger.info('signed median_price request from ' + req.headers['x-real-ip']);
+    const { userAddr, curr } = req.params;
+    if (auth.verifyApiKey(req.headers['x-api-token'], AUTH_SECRET, AUTH_IV, PRIVATE_TOKEN)) {
+        res.json(await medianPrice.getSignedMedianPrice(BC_NODE_URL, BC_PRICE_ORACLE_PRIVATE_KEY, BC_PRICE_ORACLE_CONTRACT, userAddr, curr));
+    } else {
+        res.status(401).json(resError(AUTH_ERROR));
+    }
+});
+
+// Protected endpoint: list all providers
 app.get(`/api/v1/feed_provider/list`, async (req, res) => {
     logger.info('feed_provider list request from ' + req.headers['x-real-ip']);
     if (auth.verifyApiKey(req.headers['x-api-token'], AUTH_SECRET, AUTH_IV, PRIVATE_TOKEN)) {
@@ -119,6 +143,7 @@ app.get(`/api/v1/feed_provider/list`, async (req, res) => {
         res.status(401).json(resError(AUTH_ERROR));
     }
 });
+
 
 const server = app.listen(EXPRESS_PORT, () => {
     logger.info("tab-oracle is started, listen port: " + EXPRESS_PORT);
@@ -129,7 +154,8 @@ async function main() {
     await params.cacheParamsJob(
         BC_NODE_URL,
         BC_PRICE_ORACLE_MANAGER_CONTRACT,
-        BC_TAB_REGISTRY_CONTRACT
+        BC_TAB_REGISTRY_CONTRACT,
+        true
     );
 
     if (NODE_ENV == 'local') {
@@ -138,28 +164,64 @@ async function main() {
 
         // every minute
         cron.schedule('* * * * *', async () => {
-            await params.cacheParamsJob(BC_NODE_URL, BC_PRICE_ORACLE_MANAGER_CONTRACT, BC_TAB_REGISTRY_CONTRACT);
+            // await params.cacheParamsJob(
+            //     BC_NODE_URL, 
+            //     BC_PRICE_ORACLE_MANAGER_CONTRACT, 
+            //     BC_TAB_REGISTRY_CONTRACT,
+            //     true
+            // );
             
-            await medianPrice.groupAndSendMedianPrices(BC_NODE_URL, BC_PRICE_ORACLE_PRIVATE_KEY, BC_KEEPER_PRIVATE_KEY, BC_PRICE_ORACLE_MANAGER_CONTRACT, BC_TAB_REGISTRY_CONTRACT, NFT_STORAGE_API_KEY);
+            // await medianPrice.groupMedianPrices(
+            //     NODE_ENV,
+            //     BC_NODE_URL, 
+            //     BC_PRICE_ORACLE_PRIVATE_KEY, 
+            //     BC_KEEPER_PRIVATE_KEY, 
+            //     BC_TAB_REGISTRY_CONTRACT, 
+            //     NFT_STORAGE_API_KEY, 
+            //     params.configMap
+            // );
 
-            await providerPerformanceJob.submitProvPerformance(BC_NODE_URL, BC_PRICE_ORACLE_PRIVATE_KEY, BC_PRICE_ORACLE_MANAGER_CONTRACT, params.provMap);
+            // await providerPerformanceJob.submitProvPerformance(
+            //     BC_NODE_URL, 
+            //     BC_PRICE_ORACLE_PRIVATE_KEY, 
+            //     BC_PRICE_ORACLE_MANAGER_CONTRACT, 
+            //     params.provMap
+            // );
         });
     } else {
         await params.retrieveAndSaveCurrencySymbols(CURR_DETAILS);
 
-        // every 3 minutes, e.g. 1.03, 1.06, 10.57, 11.00
-        cron.schedule('*/3 * * * *', async () => {
-            await params.cacheParamsJob(BC_NODE_URL, BC_PRICE_ORACLE_MANAGER_CONTRACT, BC_TAB_REGISTRY_CONTRACT);
+        // every 12 minutes, e.g. 1.12, 1.24, 10.36, 11.48
+        cron.schedule('*/12 * * * *', async () => {
+            await params.cacheParamsJob(
+                BC_NODE_URL, 
+                BC_PRICE_ORACLE_MANAGER_CONTRACT, 
+                BC_TAB_REGISTRY_CONTRACT,
+                false
+            );
         });
 
         // every 5 minutes, e.g. 1.00 1.05, 1.10, 2.55, 3.00
         cron.schedule('*/5 * * * *', async () => {
-            await medianPrice.groupAndSendMedianPrices(BC_NODE_URL, BC_PRICE_ORACLE_PRIVATE_KEY, BC_KEEPER_PRIVATE_KEY, BC_PRICE_ORACLE_MANAGER_CONTRACT, BC_TAB_REGISTRY_CONTRACT, NFT_STORAGE_API_KEY);
+            await medianPrice.groupMedianPrices(
+                NODE_ENV,
+                BC_NODE_URL, 
+                BC_PRICE_ORACLE_PRIVATE_KEY, 
+                BC_KEEPER_PRIVATE_KEY, 
+                BC_TAB_REGISTRY_CONTRACT, 
+                NFT_STORAGE_API_KEY,
+                params.configMap
+            );
         });
 
-        // every 1 hour, e.g. 1.01, 2.01, 3.01
-        cron.schedule('1 * * * *', async () => {
-            await providerPerformanceJob.submitProvPerformance(BC_NODE_URL, BC_PRICE_ORACLE_PRIVATE_KEY, BC_PRICE_ORACLE_MANAGER_CONTRACT, params.provMap);
+        // every 6 hours, e.g. 6.01, 12.01, 18.01
+        cron.schedule('1 */6 * * *', async () => {
+            await providerPerformanceJob.submitProvPerformance(
+                BC_NODE_URL, 
+                BC_PRICE_ORACLE_PRIVATE_KEY, 
+                BC_PRICE_ORACLE_MANAGER_CONTRACT, 
+                params.provMap
+            );
         });
     }
 
