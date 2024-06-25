@@ -9,6 +9,8 @@ const {
     BC_TAB_REGISTRY_CONTRACT,
     BC_PRICE_ORACLE_MANAGER_CONTRACT,
     BC_PRICE_ORACLE_CONTRACT,
+    BC_CONFIG_CONTRACT,
+    BC_VAULT_MANAGER_CONTRACT,
     NFT_STORAGE_API_KEY,
     CURR_DETAILS,
     AUTH_SECRET,
@@ -157,6 +159,14 @@ async function main() {
         BC_TAB_REGISTRY_CONTRACT,
         true
     );
+    await params.cacheConfigJob(
+        BC_NODE_URL,
+        BC_CONFIG_CONTRACT
+    );
+    await params.cacheTopVaultJob(
+        BC_NODE_URL,
+        BC_VAULT_MANAGER_CONTRACT
+    );
 
     if (NODE_ENV == 'local') {
 
@@ -186,6 +196,16 @@ async function main() {
             //     BC_PRICE_ORACLE_PRIVATE_KEY, 
             //     BC_PRICE_ORACLE_MANAGER_CONTRACT, 
             //     params.provMap
+            // );
+
+            // await params.cacheConfigJob(
+            //     BC_NODE_URL,
+            //     BC_CONFIG_CONTRACT
+            // );
+
+            // await params.cacheTopVaultJob(
+            //     BC_NODE_URL,
+            //     BC_VAULT_MANAGER_CONTRACT
             // );
         });
     } else {
@@ -221,6 +241,14 @@ async function main() {
                 BC_PRICE_ORACLE_PRIVATE_KEY, 
                 BC_PRICE_ORACLE_MANAGER_CONTRACT, 
                 params.provMap
+            );
+            await params.cacheTopVaultJob(
+                BC_NODE_URL,
+                BC_VAULT_MANAGER_CONTRACT
+            );
+            await params.cacheConfigJob(
+                BC_NODE_URL,
+                BC_CONFIG_CONTRACT
             );
         });
     }

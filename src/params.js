@@ -71,6 +71,234 @@ async function loadDBTabRegistry() {
     }
 }
 
+async function cacheConfigJob(BC_NODE_URL, BC_CONFIG_CONTRACT) {
+    logger.info("cacheConfigJob is started...");
+    try {
+        const provider = multicall.MulticallWrapper.wrap(new ethers.JsonRpcProvider(BC_NODE_URL, undefined, {staticNetwork: true}));
+        let configContractABI = [
+            "function reserveParams(bytes32) external view returns(uint256,uint256,uint256)",
+            "function tabParams(bytes3) external view returns(uint256,uint256)"
+        ];
+        let configContract = new ethers.Contract(
+            BC_CONFIG_CONTRACT,
+            configContractABI,
+            provider
+        );
+        let confPromises = [
+            configContract.reserveParams(ethers.keccak256(ethers.toUtf8Bytes("CBTC"))),
+            configContract.reserveParams(ethers.keccak256(ethers.toUtf8Bytes("WBTC")))
+        ];
+        let allTabs = await prisma.tab_registry.findMany({
+            where: {
+                is_tab: {
+                    equals: true
+                }
+            }
+        });
+        for(let i=0; i < allTabs.length; i++) {
+            confPromises.push(configContract.tabParams(allTabs[i].tab_code));
+        }
+        
+        Promise.all(confPromises).then( (results) => {
+            configMap.CBTC = {
+                processFeeRate: BigInt(results[0][0]),
+                minReserveRatio: BigInt(results[0][1]),
+                liquidationRatio: BigInt(results[0][2])
+            };
+            configMap.WBTC = {
+                processFeeRate: BigInt(results[1][0]),
+                minReserveRatio: BigInt(results[1][1]),
+                liquidationRatio: BigInt(results[1][2])
+            };
+
+            let tabIndex = 2;
+            let curr = '';
+            for(let i=0; i < allTabs.length; i++) {
+                curr = allTabs[i].tab_name; // XXX currency code
+                configMap[curr] = {
+                    riskPenaltyPerFrame: BigInt(results[tabIndex][0]),
+                    processFeeRate: BigInt(results[tabIndex][1])
+                };
+                tabIndex++;
+            }
+        }).catch((e) => {
+            logger.error(e);
+        });
+        
+    } catch(error) {
+        logger.error(error);
+    }
+}
+
+async function cacheTopVaultJob(BC_NODE_URL, BC_VAULT_MANAGER_CONTRACT) {
+    logger.info("cacheTopVaultJob is started...");
+    try {
+        const provider = multicall.MulticallWrapper.wrap(new ethers.JsonRpcProvider(BC_NODE_URL, undefined, {staticNetwork: true}));
+        let vaultManagerContractABI = [
+            'function getOwnerList() external view returns(address[] memory)',
+            'function getAllVaultIDByOwner(address) external view returns(uint256[] memory)',
+            'function vaults(address,uint256) external view returns(address,uint256,address,uint256,uint256,uint256)'
+        ];
+        let vaultManagerContract = new ethers.Contract(
+            BC_VAULT_MANAGER_CONTRACT,
+            vaultManagerContractABI,
+            provider
+        );
+        let tabContractABI = [
+            'function tabCode() external view returns(bytes3)'
+        ];
+        let addrTabMap = {}; // address: bytes3
+        const ownerList = await vaultManagerContract.getOwnerList();
+        logger.info('ownerList length: '+ownerList.length);
+        let topMap = {};
+
+        for(let i=0; i < ownerList.length; i++) {
+            let addr = ownerList[i];
+            let ids = await vaultManagerContract.getAllVaultIDByOwner(addr);
+            let promises = [];
+            for(let k=0; k < ids.length; k++) {
+                promises.push(vaultManagerContract.vaults(addr, ids[k]));
+            }
+            await Promise.all(promises).then(async (results) => {
+                for(let j=0; j < results.length; j++) { // each vault belongs to current owner
+                    let v = results[j];
+                    let tab = '';
+                    if (addrTabMap[v[2]] == undefined) { // retrieve tab code(bytes3) of this vault
+                        let tabContract = new ethers.Contract(
+                            v[2],
+                            tabContractABI,
+                            provider
+                        );
+                        tab = ethers.toUtf8String(await tabContract.tabCode());
+                        addrTabMap[v[2]] = tab;
+                        console.log("Tab "+tab+" address "+v[2]);
+                    } else {
+                        tab = addrTabMap[v[2]];
+                    }
+                    if (topMap[tab] == undefined) {
+                        topMap[tab] = {
+                            'vault_tab': tab,
+                            'vault_count': 1,
+                            'vault_reserve_qty': BigInt(v[1]) // reserveAmt
+                        };
+                    } else {
+                        topMap[tab].vault_tab = tab;
+                        topMap[tab].vault_count = topMap[tab].vault_count + 1;
+                        topMap[tab].vault_reserve_qty = topMap[tab].vault_reserve_qty + BigInt(v[1])
+                    }
+                }
+            }).catch((e) => {
+                logger.error(e);
+            });
+        }
+
+        let tabs = Object.keys(topMap);
+        logger.info("Top tab count: "+tabs.length);
+        
+        let sortedList = [];
+        if (tabs.length > 0) { 
+            sortedList = sortTopTab(topMap);
+            if (sortedList.length == 1) {
+                if (sortedList[0].vault_tab == 'USD') {
+                    sortedList[1] = {
+                        'vault_tab': 'EUR',
+                        'vault_count': 0,
+                        'vault_reserve_qty': 0
+                    };
+                    sortedList[2] = {
+                        'vault_tab': 'JPY',
+                        'vault_count': 0,
+                        'vault_reserve_qty': 0
+                    };
+                } else if (sortedList[0].vault_tab == 'EUR') {
+                    sortedList[1] = {
+                        'vault_tab': 'USD',
+                        'vault_count': 0,
+                        'vault_reserve_qty': 0
+                    };
+                    sortedList[2] = {
+                        'vault_tab': 'JPY',
+                        'vault_count': 0,
+                        'vault_reserve_qty': 0
+                    };
+                } else { 
+                    sortedList[1] = {
+                        'vault_tab': 'USD',
+                        'vault_count': 0,
+                        'vault_reserve_qty': 0
+                    };
+                    sortedList[2] = {
+                        'vault_tab': 'EUR',
+                        'vault_count': 0,
+                        'vault_reserve_qty': 0
+                    };
+                } 
+            } else if (sortedList.length == 2) {
+                sortedList[2] = {
+                    'vault_tab': get3rdDefTab(sortedList[0].vault_tab, sortedList[1].vault_tab),
+                    'vault_count': 0,
+                    'vault_reserve_qty': 0
+                }
+            }
+        } else { // show default USD, EUR and JPY
+            sortedList[0] = {
+                'vault_tab': 'USD',
+                'vault_count': 0,
+                'vault_reserve_qty': 0
+            };
+            sortedList[1] = {
+                'vault_tab': 'EUR',
+                'vault_count': 0,
+                'vault_reserve_qty': 0
+            };
+            sortedList[2] = {
+                'vault_tab': 'JPY',
+                'vault_count': 0,
+                'vault_reserve_qty': 0
+            };
+        }
+        for(let i =0; i < sortedList.length; i++) {
+            sortedList[i].vault_count = sortedList[i].vault_count.toString();
+            sortedList[i].vault_reserve_qty = sortedList[i].vault_reserve_qty.toString();
+        }
+        configMap.popularTabs = sortedList;
+    } catch(error) {
+        logger.error(error);
+    }
+}
+
+function sortTopTab(tabs) {
+    let sortedTopTab = [];
+    let keys = Object.keys(tabs);
+    for(let i=0; i < keys.length; i++) {
+        sortedTopTab.push(tabs[keys[i]]);
+    }
+    sortedTopTab.sort((a, b) => {
+        if (b.vault_count == a.vault_count) {
+            if (b.vault_reserve_qty > a.vault_reserve_qty)
+                return 1;
+            else
+                return -1;
+        } else if (b.vault_count > a.vault_count)
+            return 1;
+        else
+            return -1;
+    });
+    return sortedTopTab;
+}
+
+function get3rdDefTab(firstTab, secondTab) {
+    let defTab = {'USD':0, 'EUR':0, 'JPY':0};
+    defTab[firstTab] == 1;
+    defTab[secondTab] == 1;
+    for(let key in defTab) {
+        if (defTab[key] == 0) {
+            return key;
+        }
+    }
+    return defTab[0]; // not likely to reach here
+}
+
 async function cacheParamsJob (BC_NODE_URL, BC_PRICE_ORACLE_MANAGER_CONTRACT, BC_TAB_REGISTRY_CONTRACT, bLoadDbIfOnChainFailure) {
     logger.info("cacheParamsJob is started...");
     try {
@@ -478,6 +706,8 @@ async function retrieveAndSaveCurrencySymbols(CURR_DETAILS) {
 
 exports.params = {
     cacheParamsJob,
+    cacheConfigJob,
+    cacheTopVaultJob,
     getProviderDetails,
     getTabDetails,
     retrieveAndSaveCurrencySymbols,

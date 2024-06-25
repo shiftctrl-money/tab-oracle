@@ -13,6 +13,7 @@ The Tab Oracle module is a part of Tab Protocol that receives currrency rates fr
 | On/off-chain params | Sync. on-chain and off-chain parameters/configuration | Run on every 12 minutes |
 | Median price aggregation | Group currency rates to determine median price rate | Run on every 5 minutes |
 | Provider performance | Track provider feed submissions and submit data on-chain used in payment calculation | Run on every 6 hours |
+| Reserve/Tab setting | Reserve and Tab configuration such as minimum reserve ratio, liquidation ratio and risk penalty fee rate | Run on every 6 hours |
 
 
 ## API Endpoints

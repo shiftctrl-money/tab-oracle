@@ -191,6 +191,18 @@ async function getLiveMedianPrices(bRequiredDetails, bTabOnly, filterCurr, confi
         let batch = {};
         batch.timestamp = dateNow.getTime();
         let quotes = {};
+        let reserve = {
+            'WBTC': {
+                'process_fee_rate': Number(configMap['WBTC'].processFeeRate),
+                'min_reserve_ratio': Number(configMap['WBTC'].minReserveRatio),
+                'liquidation_ratio': Number(configMap['WBTC'].liquidationRatio)
+            },
+            'CBTC': {
+                'process_fee_rate': Number(configMap['CBTC'].processFeeRate),
+                'min_reserve_ratio': Number(configMap['CBTC'].minReserveRatio),
+                'liquidation_ratio': Number(configMap['CBTC'].liquidationRatio)
+            }
+        };
         let pair = '';
 
         for(let key in activeMedians) {
@@ -211,11 +223,15 @@ async function getLiveMedianPrices(bRequiredDetails, bTabOnly, filterCurr, confi
             quotes[pair] = {
                 tab: {
                     tab_code: tabRec.tab_code,
+                    tab_name: tabRec.tab_name,
+                    currency_name: tabRec.curr_name,
                     is_clt_alt_del: tabRec.is_clt_alt_del,
 	                is_tab: tabRec.is_tab,
 	                missing_count: tabRec.missing_count,
 	                revival_count: tabRec.revival_count,
-	                frozen: tabRec.frozen
+	                frozen: tabRec.frozen,
+                    risk_penalty_per_frame: Number(configMap[tabRec.tab_name].riskPenaltyPerFrame),
+                    processFeeRate: Number(configMap[tabRec.tab_name].processFeeRate)
                 },
                 median: activeMedian.median_price.median_value,
                 last_updated: activeMedian.last_updated.getTime(),
@@ -255,6 +271,8 @@ async function getLiveMedianPrices(bRequiredDetails, bTabOnly, filterCurr, confi
         }
 
         batch.data = {
+            'reserve': reserve,
+            'popular_tabs': configMap.popularTabs,
             'quotes': quotes
         };
         return batch;
