@@ -230,8 +230,8 @@ async function getLiveMedianPrices(bRequiredDetails, bTabOnly, filterCurr, confi
 	                missing_count: tabRec.missing_count,
 	                revival_count: tabRec.revival_count,
 	                frozen: tabRec.frozen,
-                    risk_penalty_per_frame: Number(configMap[tabRec.tab_name].riskPenaltyPerFrame),
-                    processFeeRate: Number(configMap[tabRec.tab_name].processFeeRate)
+                    risk_penalty_per_frame: configMap[tabRec.tab_name]? Number(configMap[tabRec.tab_name].riskPenaltyPerFrame): 0,
+                    process_fee_rate: configMap[tabRec.tab_name]? Number(configMap[tabRec.tab_name].processFeeRate): 0
                 },
                 median: activeMedian.median_price.median_value,
                 last_updated: activeMedian.last_updated.getTime(),
