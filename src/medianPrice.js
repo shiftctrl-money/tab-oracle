@@ -163,14 +163,7 @@ async function getLiveMedianPrices(bRequiredDetails, bTabOnly, filterCurr, confi
                 {
                     last_updated: 'desc'
                 }
-            ],
-            include: {
-                median_price: {
-                    include: {
-                        median_batch: true
-                    }
-                }
-            }
+            ]
         });
         if (rawActiveMedianList.length == 0)
             return { error: 'No data' };
@@ -187,7 +180,7 @@ async function getLiveMedianPrices(bRequiredDetails, bTabOnly, filterCurr, confi
                 curr = rawActiveMedianList[i].pair_name;
             }
         }
-        
+
         let batch = {};
         batch.timestamp = dateNow.getTime();
         let quotes = {};
@@ -204,11 +197,20 @@ async function getLiveMedianPrices(bRequiredDetails, bTabOnly, filterCurr, confi
             }
         };
         let pair = '';
-
         for(let key in activeMedians) {
             let activeMedian = activeMedians[key];
             curr = activeMedian.pair_name;
-            pair = activeMedian.median_price.base_currency + curr;
+            let medianPrice = await prisma.median_price.findFirst({
+                where: {
+                    id: {
+                        equals: activeMedian.median_price_id
+                    }
+                },
+                include:{
+                    median_batch: true
+                }
+            })
+            pair = medianPrice.base_currency + curr;
             let tabRec = await prisma.tab_registry.findFirst({
                 where: {
                     tab_name: {
@@ -233,15 +235,15 @@ async function getLiveMedianPrices(bRequiredDetails, bTabOnly, filterCurr, confi
                     risk_penalty_per_frame: configMap[tabRec.tab_name]? Number(configMap[tabRec.tab_name].riskPenaltyPerFrame): 0,
                     process_fee_rate: configMap[tabRec.tab_name]? Number(configMap[tabRec.tab_name].processFeeRate): 0
                 },
-                median: activeMedian.median_price.median_value,
+                median: medianPrice.median_value,
                 last_updated: activeMedian.last_updated.getTime(),
-                cid: activeMedian.median_price.median_batch.cid
+                cid: medianPrice.median_batch.cid
             }
             if (bRequiredDetails) {
                 let detailList = [];
-                for (let n = 0; n < activeMedian.median_price.active_slot; n++) {
+                for (let n = 0; n < medianPrice.active_slot; n++) {
                     let slotName = 'slot_' + n;
-                    let pricePairId = activeMedian.median_price[slotName];
+                    let pricePairId = medianPrice[slotName];
                     let pricePairRec = await prisma.price_pair.findUnique({
                         where: {
                             id: pricePairId
@@ -269,7 +271,6 @@ async function getLiveMedianPrices(bRequiredDetails, bTabOnly, filterCurr, confi
                 quotes[pair].details = detailList;
             }
         }
-
         batch.data = {
             'reserve': reserve,
             'popular_tabs': configMap.popularTabs,
