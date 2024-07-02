@@ -355,7 +355,7 @@ async function cacheParamsJob (BC_NODE_URL, BC_PRICE_ORACLE_MANAGER_CONTRACT, BC
         for(let n = 0; n < providerCount; n++)
             providerPromises.push(Promise.resolve(oracleManagerContract.providerList(n)));
 
-        Promise.all(providerPromises).then(async (results) => {
+        await Promise.all(providerPromises).then(async (results) => {
             for (let n = 0; n < providerCount; n++) {
                 let provAddr = results[n];
                 let dateNow = new Date();
@@ -458,7 +458,7 @@ async function cacheParamsJob (BC_NODE_URL, BC_PRICE_ORACLE_MANAGER_CONTRACT, BC
 
         let activatedTabCount = 0;
         let depeggedTabs;
-        Promise.all([
+        await Promise.all([
             tabRegistryContract.activatedTabCount(),
             tabRegistryContract.getCtrlAltDelTabList()
         ]).then(async (results) => {
@@ -470,12 +470,12 @@ async function cacheParamsJob (BC_NODE_URL, BC_PRICE_ORACLE_MANAGER_CONTRACT, BC
             for(let n = 0; n < activatedTabCount; n++)
                 tabPromises.push(Promise.resolve(tabRegistryContract.tabList(n)));
 
-            Promise.all(tabPromises).then(async (tabResults) => {
+            await Promise.all(tabPromises).then(async (tabResults) => {
                 let frozenPromises = [];
                 for(let n = 0; n < activatedTabCount; n++)
                     frozenPromises.push(Promise.resolve(tabRegistryContract.frozenTabs(tabResults[n])));
 
-                Promise.all(frozenPromises).then(async (frozenResults) => {
+                await Promise.all(frozenPromises).then(async (frozenResults) => {
                     for (let n = 0; n < activatedTabCount; n++) {
                         let t = tabResults[n];
                         let tabCode = ethers.toUtf8String(t);
