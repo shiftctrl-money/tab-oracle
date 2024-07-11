@@ -150,8 +150,15 @@ async function getLiveMedianPrices(bRequiredDetails, bTabOnly, filterCurr, confi
         };
         if (filterCurr) {
             filterCurr = filterCurr.substring(0,3).toUpperCase();
+            let filterList = [];
+            if (filterCurr == 'USD')
+                filterList.push('USD');
+            else {
+                filterList.push('USD');
+                filterList.push(filterCurr);
+            }
             selectCondition.pair_name = {
-                equals: filterCurr
+                in: filterList
             }
         }
         const rawActiveMedianList = await prisma.active_median.findMany({
@@ -170,15 +177,12 @@ async function getLiveMedianPrices(bRequiredDetails, bTabOnly, filterCurr, confi
         
         // loop rawActiveMedianList to keep unique tab currency only
         let activeMedians = {}; 
-        let curr = rawActiveMedianList[0].pair_name;
-        activeMedians[curr] = rawActiveMedianList[0];
+        activeMedians[rawActiveMedianList[0].pair_name] = rawActiveMedianList[0];
         for(let i = 0; i < rawActiveMedianList.length; i++) {
-            if (curr == rawActiveMedianList[i].pair_name)
+            if (activeMedians[rawActiveMedianList[i].pair_name])
                 continue;
-            else {
-                activeMedians[curr] = rawActiveMedianList[i];
-                curr = rawActiveMedianList[i].pair_name;
-            }
+            else
+                activeMedians[rawActiveMedianList[i].pair_name] = rawActiveMedianList[i];
         }
 
         let batch = {};
@@ -196,6 +200,7 @@ async function getLiveMedianPrices(bRequiredDetails, bTabOnly, filterCurr, confi
                 'liquidation_ratio': Number(configMap['CBTC'].liquidationRatio)
             }
         };
+
         let pair = '';
         for(let key in activeMedians) {
             let activeMedian = activeMedians[key];
