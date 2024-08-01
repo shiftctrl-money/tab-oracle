@@ -2,7 +2,7 @@ FROM node:20.12.0-bookworm
 
 RUN apt-get update && apt-get install -y --no-install-recommends dumb-init
 
-ENV NODE_ENV production
+ENV NODE_ENV=production
 
 WORKDIR /usr/src/app
 
