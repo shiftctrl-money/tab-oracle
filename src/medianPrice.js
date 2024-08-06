@@ -57,30 +57,31 @@ async function uploadIPFS(NFT_STORAGE_API_KEY, jsonContent) {
         logger.error("Skipped IPFS upload: Empty ORACLE_FEEDS content.");
         return '';
     }
+    return '';
 
-    var config = {
-        method: 'post',
-        maxBodyLength: Infinity,
-        url: 'https://api.nft.storage/upload',
-        headers: {
-            'Content-Type': 'application/json',
-            'Authorization': `Bearer ${NFT_STORAGE_API_KEY}`
-        },
-        data: JSON.stringify(jsonContent)
-    };
-    var cid = '';
-    logger.info('Ready to upload...');
-    await axios.request(config)
-        .then((response) => {
-            var res = response.data;
-            cid = res.value.cid;
-            console.log(res);
-            logger.info('Uploaded is completed. CIDv1: ' + cid);
-        })
-        .catch((error) => {
-            logger.error(error);
-        });
-    return cid;
+    // var config = {
+    //     method: 'post',
+    //     maxBodyLength: Infinity,
+    //     url: 'https://api.nft.storage/upload',
+    //     headers: {
+    //         'Content-Type': 'application/json',
+    //         'Authorization': `Bearer ${NFT_STORAGE_API_KEY}`
+    //     },
+    //     data: JSON.stringify(jsonContent)
+    // };
+    // var cid = '';
+    // logger.info('Ready to upload...');
+    // await axios.request(config)
+    //     .then((response) => {
+    //         var res = response.data;
+    //         cid = res.value.cid;
+    //         console.log(res);
+    //         logger.info('Uploaded is completed. CIDv1: ' + cid);
+    //     })
+    //     .catch((error) => {
+    //         logger.error(error);
+    //     });
+    // return cid;
 }
 
 async function getHistoricalPrices(curr, maxCount) {
@@ -766,7 +767,7 @@ async function groupMedianPrices(
                 logger.info("CID: "+strCID);
             } else {
                 // Use dummy value if upload failed
-                strCID = 'bafybeiaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaa'; // valid sample: bafybeigdyrzt5sfp7udm7hu76uh7y26nf3efuylqabf3oclgtqy55fbzdi
+                strCID = ''; // valid sample: bafybeigdyrzt5sfp7udm7hu76uh7y26nf3efuylqabf3oclgtqy55fbzdi
                 median_batch.cid = strCID;
             }
         }
