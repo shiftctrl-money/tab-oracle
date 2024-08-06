@@ -167,13 +167,14 @@ async function main() {
         BC_NODE_URL,
         BC_VAULT_MANAGER_CONTRACT
     );
+    logger.info("Start scheduling process...");
 
     if (NODE_ENV == 'local') {
 
         // await params.retrieveAndSaveCurrencySymbols(CURR_DETAILS);
 
         // every minute
-        cron.schedule('* * * * *', async () => {
+        // cron.schedule('* * * * *', async () => {
             // await params.cacheParamsJob(
             //     BC_NODE_URL, 
             //     BC_PRICE_ORACLE_MANAGER_CONTRACT, 
@@ -207,12 +208,12 @@ async function main() {
             //     BC_NODE_URL,
             //     BC_VAULT_MANAGER_CONTRACT
             // );
-        });
+        // });
     } else {
         await params.retrieveAndSaveCurrencySymbols(CURR_DETAILS);
 
-        // every 12 minutes, e.g. 1.12, 1.24, 10.36, 11.48
-        cron.schedule('*/12 * * * *', async () => {
+        // every 11 minutes, e.g. 1.11, 1.22, 10.33, 11.44
+        cron.schedule('*/11 * * * *', async () => {
             await params.cacheParamsJob(
                 BC_NODE_URL, 
                 BC_PRICE_ORACLE_MANAGER_CONTRACT, 

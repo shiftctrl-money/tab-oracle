@@ -8,7 +8,7 @@ WORKDIR /usr/src/app
 
 COPY --chown=node:node . /usr/src/app
 
-RUN npm ci --only=production
+RUN npm ci --omit=dev
 
 RUN chown -R node:node node_modules
 
