@@ -94,7 +94,7 @@ async function saveFeeds (providerRec, jsonBody) {
 
             if (price == 0) {
                 logger.error('Zero price on currency ' + strTab + '. v1: ' + v1 + ' v2: ' + v2 + ' btcusdRate: ' + btcusdRate.toString());
-                return {error: 'Invalid zero value from price calculation on key '+key};
+                // return {error: 'Invalid zero value from price calculation on key '+key};
             }
 
             pricePairRecs.push({
