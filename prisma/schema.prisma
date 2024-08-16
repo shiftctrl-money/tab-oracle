@@ -109,11 +109,11 @@ model median_price {
   slot_7             String?         @db.VarChar(100)
   slot_8             String?         @db.VarChar(100)
   active_slot        Int?
+  tab_status         String?         @db.Char(1)
   feeds              String?
   refresh_median     Boolean?
-  overwritten_median String?         @db.VarChar(78)
-  tab_status         String?         @db.Char(1)
   movement_delta     String?         @db.VarChar(78)
+  overwritten_median String?         @db.VarChar(78)
   active_median      active_median[]
   median_batch       median_batch    @relation(fields: [median_batch_id], references: [id], onDelete: NoAction, onUpdate: NoAction, map: "FK_MEDIAN_BATCH")
 
@@ -129,4 +129,12 @@ model active_median {
 
   @@index([last_updated(sort: Desc)])
   @@index([pair_name, last_updated(sort: Desc)], map: "active_median_pair_name_idx")
+}
+
+model pegged_tab_registry {
+  id           String @id(map: "PK_PEGGED_TAB_REGISTRY") @db.VarChar(100)
+  pegged_tab   String @unique(map: "UNIQ_PEGGED_TAB") @db.Char(3)
+  pegged_code  String @db.Char(8)
+  peg_to_tab   String @db.Char(3)
+  peg_to_ratio Int?
 }

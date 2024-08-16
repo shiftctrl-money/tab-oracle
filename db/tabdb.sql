@@ -128,6 +128,17 @@ CREATE TABLE tabdb.provider_performance (
 	CONSTRAINT "PK__PROV_PERFORMANCE" PRIMARY KEY (id)
 );
 
+DROP TABLE IF EXISTS tabdb.pegged_tab_registry;
+CREATE TABLE tabdb.pegged_tab_registry (
+	id character varying(100) NOT NULL,
+	pegged_tab CHAR(3) NOT NULL,
+	pegged_code CHAR(8) NOT NULL,
+	peg_to_tab CHAR(3) NOT NULL,
+	peg_to_ratio int,
+	CONSTRAINT "UNIQ_PEGGED_TAB" UNIQUE (pegged_tab),
+	CONSTRAINT "PK_PEGGED_TAB_REGISTRY" PRIMARY KEY (id)
+);
+
 CREATE INDEX feed_provider_pub_address_idx ON tabdb.feed_provider (pub_address);
 CREATE INDEX tab_registry_tab_name_idx ON tabdb.tab_registry (tab_name);
 CREATE INDEX price_pair_pair_name_idx ON tabdb.price_pair (pair_name);

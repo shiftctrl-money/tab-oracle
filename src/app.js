@@ -73,6 +73,10 @@ app.get(`/api/v1/tab/list`, async (req, res) => {
     res.json(resData(await params.getTabDetails()));
 });
 
+app.get('/api/v1/peggedTab/list', async (req, res) => {
+    res.json(resData(await params.getPeggedTabDetails()));
+});
+
 // Protected endpoint: Registered oracle provider only
 app.post(`/api/v1/feed_provider/:provAddr/feed_submission`, async (req, res) => {
     const { provAddr } = req.params;

@@ -447,7 +447,11 @@ async function cacheParamsJob (BC_NODE_URL, BC_PRICE_ORACLE_MANAGER_CONTRACT, BC
             "function activatedTabCount() external view returns(uint256)",
             "function tabList(uint256) external view returns(bytes3)",
             "function frozenTabs(bytes3) external view returns(bool)",
-            "function getCtrlAltDelTabList() external view returns (bytes3[] memory ctrlAltDelTabList)"
+            "function getCtrlAltDelTabList() external view returns (bytes3[] memory ctrlAltDelTabList)",
+            "function peggedTabCount() external view returns(uint256)",
+            "function peggedTabList(uint256) external view returns(bytes3)",
+            "function peggedTabMap(bytes3) external view returns(bytes3)",
+            "function peggedTabPriceRatio(bytes3) external view returns(uint256)"
         ];
 
         let tabRegistryContract = new ethers.Contract(
@@ -455,6 +459,51 @@ async function cacheParamsJob (BC_NODE_URL, BC_PRICE_ORACLE_MANAGER_CONTRACT, BC
             tabRegistryContractABI,
             provider
         );
+
+        let peggedTabCount = 0;
+        await Promise.all([
+            tabRegistryContract.peggedTabCount()
+        ]).then(async (results) => {
+            peggedTabCount = results[0];
+            if (peggedTabCount > 0) {
+                let pegPromises = [];
+                for(let n = 0; n < peggedTabCount; n++)
+                    pegPromises.push(Promise.resolve(tabRegistryContract.peggedTabList(n)));
+                await Promise.all(pegPromises).then(async (pegResults) => {
+                    for(let n = 0; n < peggedTabCount; n++) {
+                        let bytes3PegTab = pegResults[n];
+                        let pegTab = ethers.toUtf8String(bytes3PegTab);
+                        const existedPeggedTab = await prisma.pegged_tab_registry.findUnique({
+                            where: {
+                                pegged_tab: pegTab
+                            }
+                        });
+                        if (!existedPeggedTab) {
+                            await Promise.all([
+                                tabRegistryContract.peggedTabMap(bytes3PegTab),
+                                tabRegistryContract.peggedTabPriceRatio(bytes3PegTab)
+                            ]).then(async (pegDetails) => {
+                                let pegToTab = pegDetails[0];
+                                let pegToRatio = BigInt(pegDetails[1]);
+                                let newPegTab = {
+                                    id: crypto.randomUUID(),
+                                    pegged_tab: pegTab,
+                                    pegged_code: ethers.dataSlice(ethers.toUtf8Bytes(pegTab), 0, 3),
+                                    peg_to_tab: ethers.toUtf8String(pegToTab),
+                                    peg_to_ratio: Number(pegToRatio)
+                                }
+                                await prisma.pegged_tab_registry.create({
+                                    data: newPegTab
+                                });
+                                logger.info("Added pegged tab: "+pegTab+", "+pegTab+"/"+newPegTab.peg_to_tab+" ratio: "+pegToRatio.toString());
+                            });
+                        }
+                    }
+                })
+            }
+        }).catch((error) => {
+            logger.error(error);
+        });
 
         let activatedTabCount = 0;
         let depeggedTabs;
@@ -579,6 +628,25 @@ async function getTabDetails() {
             frozen: t.frozen,
             cltAltDel: t.is_clt_alt_del
         });
+    }
+    return jsonData;
+}
+
+async function getPeggedTabDetails() {
+    let jsonData = {};
+    let tabs = await prisma.pegged_tab_registry.findMany({
+        orderBy: {
+            pegged_tab: 'asc'
+        }
+    });
+    for(let n=0; n < tabs.length; n++) {
+        let t = tabs[n];
+        jsonData[t.pegged_tab] = {
+            code: t.pegged_tab,
+            bytes3: t.pegged_code,
+            pegTo: t.peg_to_tab,
+            pegRatio: t.peg_to_ratio
+        };
     }
     return jsonData;
 }
@@ -710,6 +778,7 @@ exports.params = {
     cacheTopVaultJob,
     getProviderDetails,
     getTabDetails,
+    getPeggedTabDetails,
     retrieveAndSaveCurrencySymbols,
     provMap,
     tabMap,

@@ -289,6 +289,57 @@ async function getLiveMedianPrices(bRequiredDetails, bTabOnly, filterCurr, confi
     }
 };
 
+async function getPeggedRate(strTab) {
+    let peggedTab = await prisma.pegged_tab_registry.findUnique({
+        where: {
+            pegged_tab: strTab
+        }
+    });
+    if (peggedTab) {
+        const activeMedian = await prisma.active_median.findFirst({
+            where: {
+                pair_name: {
+                    equals: peggedTab.peg_to_tab
+                }
+            },
+            orderBy: {
+                last_updated: 'desc'
+            },
+            include: {
+                median_price: true
+            }
+        });
+        if (activeMedian) {
+            return {
+                median: activeMedian,
+                rate: BigInt(activeMedian.median_price.median_value) * BigInt(peggedTab.peg_to_ratio) / BigInt("100"),
+                peggedTab: peggedTab
+            };
+        }
+    }
+    return {rate: 0};
+}
+
+// key: existing tab(peg_to_tab)
+// value: list of pegged_tab_registry records that is pegging to existing tab's rate
+async function getPeggedTabs() {
+    let recs = await prisma.pegged_tab_registry.findMany({
+        orderBy: {
+            peg_to_tab: 'asc'
+        }
+    });
+    let tabs = {};
+    if (recs) {
+        for(let n=0; n < recs.length; n++) {
+            if (tabs[recs[n].peg_to_tab])
+                tabs[recs[n].peg_to_tab].push(recs[n]);
+            else    
+                tabs[recs[n].peg_to_tab] = [recs[n]];
+        }
+    }
+    return tabs;
+}
+
 async function signMedianPrice(userAddr, tab, price, timestamp, rpcUrl, priKey, priceOracleAddr) {
     const provider = new ethers.JsonRpcProvider(rpcUrl, undefined, {staticNetwork: true});
     const chainId = (await provider.getNetwork()).chainId;
@@ -379,24 +430,32 @@ async function getSignedMedianPrice(BC_NODE_URL, BC_PRICE_ORACLE_PRIVATE_KEY, BC
                 median_price: true
             }
         });
-        if (!activeMedian)
-            return { error: 'No data' };
+
+        let peggedRateRec;
+        if (!activeMedian) {
+            // Calculate pegged rate if it is pegged tab
+            peggedRateRec = getPeggedRate(curr);
+            if (peggedRateRec.rate == 0)
+                return { error: 'No data' };
+            else
+                activeMedian = peggedRateRec.median;
+        }
         
         let batch = {};
         batch.timestamp = activeMedian.last_updated.getTime();
         const price_signature = await signMedianPrice(
             userAddr,
             ethers.dataSlice(ethers.toUtf8Bytes(curr), 0, 3),
-            activeMedian.median_price.median_value,
+            peggedRateRec? peggedRateRec.rate: activeMedian.median_price.median_value,
             batch.timestamp,
             BC_NODE_URL,
             BC_PRICE_ORACLE_PRIVATE_KEY,
             BC_PRICE_ORACLE_CONTRACT
         );
         let quotes = {};
-        let pairName = 'BTC'+activeMedian.pair_name;
+        let pairName = peggedRateRec? ('BTC'+curr): ('BTC'+activeMedian.pair_name);
         quotes[pairName] = {
-            'median': activeMedian.median_price.median_value,
+            'median': peggedRateRec? peggedRateRec.rate: activeMedian.median_price.median_value,
             'signed': price_signature
         };
         batch.data = {
@@ -535,6 +594,8 @@ async function groupMedianPrices(
         // loop all currencies: if feed count is less than MEDIUM_MIN_FEED_COUNT consecutively, disable corresponding Tab
         let tabStatus = 'A'; // A:Active, R:Recovering, F:Frozen, M:Missed
         let c = 0;
+        let peggedTabs = await getPeggedTabs();
+        
         for (curr in priceMap) {
             let tabRec = await prisma.tab_registry.findFirst({
                 where: {
@@ -556,6 +617,7 @@ async function groupMedianPrices(
                         frozen: false
                     }
                 });
+                logger.info("created new tab_registry "+tabRec.id+" curr: "+curr);
             }
           
             if (priceMap[curr].length < MEDIUM_MIN_FEED_COUNT) { // e.g. pool size < 3, NOT acceptable
@@ -590,7 +652,7 @@ async function groupMedianPrices(
                 }
             } else { // pool size >= 3
                 if (tabRec.frozen) {
-                    if (tabRec.revival_count + 1 >= 3) {
+                    if ((tabRec.revival_count + 1) >= 3) {
                         if (tabRec.is_tab)
                             await submitTrx_tab(tabRec.tab_name, 'enable', keeperSigner, BC_TAB_REGISTRY_CONTRACT, tabRegistryContract);
                         tabRec = await prisma.tab_registry.update({
@@ -684,6 +746,20 @@ async function groupMedianPrices(
                 data: priceData
             });
 
+            // there is/are pegging tab(s) relied on this tab's rate
+            if (peggedTabs[curr]) { 
+                let pgTabList = peggedTabs[curr];
+                for(let p=0; p < pgTabList.length; p++) {
+                    priceData.id = crypto.randomUUID();
+                    priceData.pair_name = pgTabList[p].pegged_tab;
+                    priceData.median_value = (BigInt(priceData.median_value) * BigInt(pgTabList[p].peg_to_ratio) / BigInt('100')).toString();
+                    let mp = await prisma.median_price.create({
+                        data: priceData
+                    });
+                    peggedTabs['MP_'+pgTabList[p].pegged_tab] = mp;
+                }
+            }
+
             // update new median if delta with existing median value exceeded 0.5%
             // median value will be updated every 1 hour regardless of delta
             var activeMedian = await prisma.active_median.findFirst({
@@ -717,6 +793,19 @@ async function groupMedianPrices(
                             pair_name: curr
                         }
                     });
+                    if (peggedTabs[curr]) { 
+                        let pgTabList = peggedTabs[curr];
+                        for(let p=0; p < pgTabList.length; p++) {
+                            await prisma.active_median.create({
+                                data: {
+                                    id: crypto.randomUUID(),
+                                    last_updated: median_batch.created_datetime,
+                                    median_price_id: peggedTabs['MP_'+pgTabList[p].pegged_tab].id,
+                                    pair_name: pgTabList[p].pegged_tab
+                                }
+                            });
+                        }
+                    }
                 } else {
                     // price movement delta > 0.5%
                     if (movementDelta > ( ethers.parseEther(configMap.movementDelta.toString()) / 10000n)) {
@@ -729,6 +818,19 @@ async function groupMedianPrices(
                                 pair_name: curr
                             }
                         });
+                        if (peggedTabs[curr]) { 
+                            let pgTabList = peggedTabs[curr];
+                            for(let p=0; p < pgTabList.length; p++) {
+                                await prisma.active_median.create({
+                                    data: {
+                                        id: crypto.randomUUID(),
+                                        last_updated: median_batch.created_datetime,
+                                        median_price_id: peggedTabs['MP_'+pgTabList[p].pegged_tab].id,
+                                        pair_name: pgTabList[p].pegged_tab
+                                    }
+                                });
+                            }
+                        }
                     } 
                 }
             } else {
@@ -741,6 +843,19 @@ async function groupMedianPrices(
                         pair_name: curr
                     }
                 });
+                if (peggedTabs[curr]) { 
+                    let pgTabList = peggedTabs[curr];
+                    for(let p=0; p < pgTabList.length; p++) {
+                        await prisma.active_median.create({
+                            data: {
+                                id: crypto.randomUUID(),
+                                last_updated: median_batch.created_datetime,
+                                median_price_id: peggedTabs['MP_'+pgTabList[p].pegged_tab].id,
+                                pair_name: pgTabList[p].pegged_tab
+                            }
+                        });
+                    }
+                }
             }
 
             await prisma.median_price.update({
@@ -753,6 +868,21 @@ async function groupMedianPrices(
 	                overwritten_median: overwrittenMedian
                 }
             });
+            if (peggedTabs[curr]) { 
+                let pgTabList = peggedTabs[curr];
+                for(let p=0; p < pgTabList.length; p++) {
+                    await prisma.median_price.update({
+                        where: {
+                            id: peggedTabs['MP_'+pgTabList[p].pegged_tab].id
+                        },
+                        data: {
+                            refresh_median: bRefreshMedian,
+                            movement_delta: '0',
+                            overwritten_median: '0'
+                        }
+                    });
+                }
+            }
             c++;
 
         } // each tab
