@@ -3,7 +3,7 @@
 
 The Tab Oracle module is a part of Tab Protocol that receives currrency rates from authorized providers, and supply signed median ratas on demand.
 
-![overview](https://lh3.googleusercontent.com/drive-viewer/AKGpihbnSouCbuKkRs5xyDSDXRm-YnaQWw4WXBTGuNZ1gZCUp8t9lHc0SxCyYbU_FH7qK3qMyWuzdbLhiVya52xvadKgiyYHeoAgXg=s2560)
+![overview](https://qwerty.shiftctrl.money/shared/shiftctrl_v1.1-Tab_Oracle_Keeper.jpg)
 
 
 ## Sub-modules
@@ -22,6 +22,7 @@ The Tab Oracle module is a part of Tab Protocol that receives currrency rates fr
 | /api/v1/auth/create_or_reset_api_token/[provider_pub_address] | Authorized provider calls this endpoint to generate or reset API token to submit currrency rate data |
 | /api/v1/feed_provider/[provider_pub_address]/feed_submission | Authorized provider calls this endpoint to submit currency rate data |
 | /api/v1/tab/list | Retrieve Tab details |
+| /api/v1/peggedTab/list | Retrieve Pegged Tab details |
 | /api/v1/price_history/[currency] | Protected endpoint to retrieve historical prices |
 | /api/v1/median_price/[currency] | Protected endpoint to retrieve latest median price |
 | /api/v1/median_price/[wallet_address]/[currency] | Proteced endpoint to retrieve signed latest median price |
