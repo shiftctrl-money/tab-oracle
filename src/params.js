@@ -18,6 +18,10 @@ function bytes3ToString(arrBytes3) {
     return arrString;
 }
 
+function keccak256Bytes3(b3) {
+    return ethers.keccak256(ethers.toUtf8Bytes(b3));
+}
+
 async function loadDBProvider() {
     const providers = await prisma.feed_provider.findMany();
     for(let i=0; i < providers.length; i++) {
@@ -76,51 +80,51 @@ async function cacheConfigJob(BC_NODE_URL, BC_CONFIG_CONTRACT) {
     try {
         const provider = multicall.MulticallWrapper.wrap(new ethers.JsonRpcProvider(BC_NODE_URL, undefined, {staticNetwork: true}));
         let configContractABI = [
-            "function reserveParams(bytes32) external view returns(uint256,uint256,uint256)",
-            "function tabParams(bytes3) external view returns(uint256,uint256)"
+            "function tabParams(bytes32) external view returns(uint256,uint256,uint256,uint256)"
         ];
         let configContract = new ethers.Contract(
             BC_CONFIG_CONTRACT,
             configContractABI,
             provider
         );
-        let confPromises = [
-            configContract.reserveParams(ethers.keccak256(ethers.toUtf8Bytes("CBTC"))),
-            configContract.reserveParams(ethers.keccak256(ethers.toUtf8Bytes("WBTC")))
-        ];
+        let confPromises = [];
         let allTabs = await prisma.tab_registry.findMany({
-            where: {
-                is_tab: {
-                    equals: true
-                }
-            }
+            // where: {
+            //     is_tab: {
+            //         equals: true
+            //     }
+            // }
         });
-        for(let i=0; i < allTabs.length; i++) {
-            confPromises.push(configContract.tabParams(allTabs[i].tab_code));
-        }
+        logger.info("cacheConfigJob: checking "+allTabs.length+" tab_registry records...");
         
-        Promise.all(confPromises).then( (results) => {
-            configMap.CBTC = {
-                processFeeRate: BigInt(results[0][0]),
-                minReserveRatio: BigInt(results[0][1]),
-                liquidationRatio: BigInt(results[0][2])
-            };
-            configMap.WBTC = {
-                processFeeRate: BigInt(results[1][0]),
-                minReserveRatio: BigInt(results[1][1]),
-                liquidationRatio: BigInt(results[1][2])
-            };
+        // prepare retrieval of TabParams on all registered tabs
+        for(let i=0; i < allTabs.length; i++)
+            confPromises.push(configContract.tabParams(ethers.keccak256(ethers.toUtf8Bytes(allTabs[i].tab_name))));
 
-            let tabIndex = 2;
+        // default config
+        let defTab = await configContract.tabParams(ethers.keccak256(ethers.hexlify('0x000000'))); 
+        
+        await Promise.all(confPromises).then(async (results) => {
             let curr = '';
             for(let i=0; i < allTabs.length; i++) {
                 curr = allTabs[i].tab_name; // XXX currency code
-                configMap[curr] = {
-                    riskPenaltyPerFrame: BigInt(results[tabIndex][0]),
-                    processFeeRate: BigInt(results[tabIndex][1])
-                };
-                tabIndex++;
+                if (BigInt(results[i][2]) == 0) {
+                    configMap[curr] = {
+                        riskPenaltyPerFrame: BigInt(defTab[0]),
+                        processFeeRate: BigInt(defTab[1]),
+                        minReserveRatio: BigInt(defTab[2]),
+                        liquidationRatio: BigInt(defTab[3]),
+                    };
+                } else {
+                    configMap[curr] = {
+                        riskPenaltyPerFrame: BigInt(results[i][0]),
+                        processFeeRate: BigInt(results[i][1]),
+                        minReserveRatio: BigInt(results[i][2]),
+                        liquidationRatio: BigInt(results[i][3]),
+                    };
+                }
             }
+            logger.info("cacheConfigJob is completed...");
         }).catch((e) => {
             logger.error(e);
         });
@@ -446,12 +450,12 @@ async function cacheParamsJob (BC_NODE_URL, BC_PRICE_ORACLE_MANAGER_CONTRACT, BC
         let tabRegistryContractABI = [
             "function activatedTabCount() external view returns(uint256)",
             "function tabList(uint256) external view returns(bytes3)",
-            "function frozenTabs(bytes3) external view returns(bool)",
+            "function frozenTabs(bytes32) external view returns(bool)",
             "function getCtrlAltDelTabList() external view returns (bytes3[] memory ctrlAltDelTabList)",
             "function peggedTabCount() external view returns(uint256)",
             "function peggedTabList(uint256) external view returns(bytes3)",
-            "function peggedTabMap(bytes3) external view returns(bytes3)",
-            "function peggedTabPriceRatio(bytes3) external view returns(uint256)"
+            "function peggedTabMap(bytes32) external view returns(bytes3)",
+            "function peggedTabPriceRatio(bytes32) external view returns(uint256)"
         ];
 
         let tabRegistryContract = new ethers.Contract(
@@ -480,8 +484,8 @@ async function cacheParamsJob (BC_NODE_URL, BC_PRICE_ORACLE_MANAGER_CONTRACT, BC
                         });
                         if (!existedPeggedTab) {
                             await Promise.all([
-                                tabRegistryContract.peggedTabMap(bytes3PegTab),
-                                tabRegistryContract.peggedTabPriceRatio(bytes3PegTab)
+                                tabRegistryContract.peggedTabMap(keccak256Bytes3(bytes3PegTab)),
+                                tabRegistryContract.peggedTabPriceRatio(keccak256Bytes3(bytes3PegTab))
                             ]).then(async (pegDetails) => {
                                 let pegToTab = pegDetails[0];
                                 let pegToRatio = BigInt(pegDetails[1]);
@@ -522,7 +526,7 @@ async function cacheParamsJob (BC_NODE_URL, BC_PRICE_ORACLE_MANAGER_CONTRACT, BC
             await Promise.all(tabPromises).then(async (tabResults) => {
                 let frozenPromises = [];
                 for(let n = 0; n < activatedTabCount; n++)
-                    frozenPromises.push(Promise.resolve(tabRegistryContract.frozenTabs(tabResults[n])));
+                    frozenPromises.push(Promise.resolve(tabRegistryContract.frozenTabs(keccak256Bytes3(tabResults[n]))));
 
                 await Promise.all(frozenPromises).then(async (frozenResults) => {
                     for (let n = 0; n < activatedTabCount; n++) {

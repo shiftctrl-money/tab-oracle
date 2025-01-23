@@ -157,6 +157,8 @@ const server = app.listen(EXPRESS_PORT, () => {
 
 async function main() {
 
+    await params.retrieveAndSaveCurrencySymbols(CURR_DETAILS);
+
     await params.cacheParamsJob(
         BC_NODE_URL,
         BC_PRICE_ORACLE_MANAGER_CONTRACT,
@@ -178,14 +180,7 @@ async function main() {
         // await params.retrieveAndSaveCurrencySymbols(CURR_DETAILS);
 
         // every minute
-        // cron.schedule('* * * * *', async () => {
-            // await params.cacheParamsJob(
-            //     BC_NODE_URL, 
-            //     BC_PRICE_ORACLE_MANAGER_CONTRACT, 
-            //     BC_TAB_REGISTRY_CONTRACT,
-            //     true
-            // );
-            
+        cron.schedule('* * * * *', async () => {
             // await medianPrice.groupMedianPrices(
             //     NODE_ENV,
             //     BC_NODE_URL, 
@@ -202,17 +197,7 @@ async function main() {
             //     BC_PRICE_ORACLE_MANAGER_CONTRACT, 
             //     params.provMap
             // );
-
-            // await params.cacheConfigJob(
-            //     BC_NODE_URL,
-            //     BC_CONFIG_CONTRACT
-            // );
-
-            // await params.cacheTopVaultJob(
-            //     BC_NODE_URL,
-            //     BC_VAULT_MANAGER_CONTRACT
-            // );
-        // });
+        });
     } else {
         await params.retrieveAndSaveCurrencySymbols(CURR_DETAILS);
 

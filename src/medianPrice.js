@@ -189,23 +189,11 @@ async function getLiveMedianPrices(bRequiredDetails, bTabOnly, filterCurr, confi
         let batch = {};
         batch.timestamp = dateNow.getTime();
         let quotes = {};
-        let reserve = {
-            'WBTC': {
-                'process_fee_rate': Number(configMap['WBTC'].processFeeRate),
-                'min_reserve_ratio': Number(configMap['WBTC'].minReserveRatio),
-                'liquidation_ratio': Number(configMap['WBTC'].liquidationRatio)
-            },
-            'CBTC': {
-                'process_fee_rate': Number(configMap['CBTC'].processFeeRate),
-                'min_reserve_ratio': Number(configMap['CBTC'].minReserveRatio),
-                'liquidation_ratio': Number(configMap['CBTC'].liquidationRatio)
-            }
-        };
-
         let pair = '';
+        
         for(let key in activeMedians) {
             let activeMedian = activeMedians[key];
-            curr = activeMedian.pair_name;
+            let curr = activeMedian.pair_name;
             let medianPrice = await prisma.median_price.findFirst({
                 where: {
                     id: {
@@ -225,9 +213,14 @@ async function getLiveMedianPrices(bRequiredDetails, bTabOnly, filterCurr, confi
                 }
             });
             if (bTabOnly) { // non-tab result is excluded
-                if (tabRec.is_tab == false)
+                if (tabRec) {
+                    if (tabRec.is_tab == false)
+                        continue;
+                } else
                     continue;
             }
+            if (!tabRec)
+                continue;
             quotes[pair] = {
                 tab: {
                     tab_code: tabRec.tab_code,
@@ -239,7 +232,9 @@ async function getLiveMedianPrices(bRequiredDetails, bTabOnly, filterCurr, confi
 	                revival_count: tabRec.revival_count,
 	                frozen: tabRec.frozen,
                     risk_penalty_per_frame: configMap[tabRec.tab_name]? Number(configMap[tabRec.tab_name].riskPenaltyPerFrame): 0,
-                    process_fee_rate: configMap[tabRec.tab_name]? Number(configMap[tabRec.tab_name].processFeeRate): 0
+                    process_fee_rate: configMap[tabRec.tab_name]? Number(configMap[tabRec.tab_name].processFeeRate): 0,
+                    min_reserve_ratio: configMap[tabRec.tab_name]? Number(configMap[tabRec.tab_name].minReserveRatio): 0,
+                    liquidation_ratio: configMap[tabRec.tab_name]? Number(configMap[tabRec.tab_name].liquidationRatio): 0
                 },
                 median: medianPrice.median_value,
                 last_updated: activeMedian.last_updated.getTime(),
@@ -278,7 +273,6 @@ async function getLiveMedianPrices(bRequiredDetails, bTabOnly, filterCurr, confi
             }
         }
         batch.data = {
-            'reserve': reserve,
             'popular_tabs': configMap.popularTabs,
             'quotes': quotes
         };
