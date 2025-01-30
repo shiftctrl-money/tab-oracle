@@ -4,8 +4,9 @@ const {
     NODE_ENV,
     EXPRESS_PORT,
     BC_NODE_URL,
-    BC_PRICE_ORACLE_PRIVATE_KEY,
-    BC_KEEPER_PRIVATE_KEY,
+    BC_PRICE_ORACLE_SIGNER_PRIVATE_KEY,
+    BC_PRICE_ORACLE_PROVIDER_PERFORMANCE_PRIVATE_KEY,
+    BC_TAB_FREEZER_PRIVATE_KEY,
     BC_TAB_REGISTRY_CONTRACT,
     BC_PRICE_ORACLE_MANAGER_CONTRACT,
     BC_PRICE_ORACLE_CONTRACT,
@@ -134,7 +135,7 @@ app.get(`/api/v1/median_price/:userAddr/:curr`, async (req, res) => {
     logger.info('signed median_price request from ' + req.headers['x-real-ip']);
     const { userAddr, curr } = req.params;
     if (auth.verifyApiKey(req.headers['x-api-token'], AUTH_SECRET, AUTH_IV, PRIVATE_TOKEN)) {
-        res.json(await medianPrice.getSignedMedianPrice(BC_NODE_URL, BC_PRICE_ORACLE_PRIVATE_KEY, BC_PRICE_ORACLE_CONTRACT, userAddr, curr));
+        res.json(await medianPrice.getSignedMedianPrice(BC_NODE_URL, BC_PRICE_ORACLE_SIGNER_PRIVATE_KEY, BC_PRICE_ORACLE_CONTRACT, userAddr, curr));
     } else {
         res.status(401).json(resError(AUTH_ERROR));
     }
@@ -181,22 +182,21 @@ async function main() {
 
         // every minute
         cron.schedule('* * * * *', async () => {
-            // await medianPrice.groupMedianPrices(
-            //     NODE_ENV,
-            //     BC_NODE_URL, 
-            //     BC_PRICE_ORACLE_PRIVATE_KEY, 
-            //     BC_KEEPER_PRIVATE_KEY, 
-            //     BC_TAB_REGISTRY_CONTRACT, 
-            //     NFT_STORAGE_API_KEY, 
-            //     params.configMap
-            // );
+            await medianPrice.groupMedianPrices(
+                NODE_ENV,
+                BC_NODE_URL, 
+                BC_TAB_FREEZER_PRIVATE_KEY, 
+                BC_TAB_REGISTRY_CONTRACT, 
+                NFT_STORAGE_API_KEY, 
+                params.configMap
+            );
 
-            // await providerPerformanceJob.submitProvPerformance(
-            //     BC_NODE_URL, 
-            //     BC_PRICE_ORACLE_PRIVATE_KEY, 
-            //     BC_PRICE_ORACLE_MANAGER_CONTRACT, 
-            //     params.provMap
-            // );
+            await providerPerformanceJob.submitProvPerformance(
+                BC_NODE_URL, 
+                BC_PRICE_ORACLE_PROVIDER_PERFORMANCE_PRIVATE_KEY, 
+                BC_PRICE_ORACLE_MANAGER_CONTRACT, 
+                params.provMap
+            );
         });
     } else {
         await params.retrieveAndSaveCurrencySymbols(CURR_DETAILS);
@@ -216,8 +216,7 @@ async function main() {
             await medianPrice.groupMedianPrices(
                 NODE_ENV,
                 BC_NODE_URL, 
-                BC_PRICE_ORACLE_PRIVATE_KEY, 
-                BC_KEEPER_PRIVATE_KEY, 
+                BC_TAB_FREEZER_PRIVATE_KEY, 
                 BC_TAB_REGISTRY_CONTRACT, 
                 NFT_STORAGE_API_KEY,
                 params.configMap
@@ -228,7 +227,7 @@ async function main() {
         cron.schedule('1 */6 * * *', async () => {
             await providerPerformanceJob.submitProvPerformance(
                 BC_NODE_URL, 
-                BC_PRICE_ORACLE_PRIVATE_KEY, 
+                BC_PRICE_ORACLE_PROVIDER_PERFORMANCE_PRIVATE_KEY, 
                 BC_PRICE_ORACLE_MANAGER_CONTRACT, 
                 params.provMap
             );

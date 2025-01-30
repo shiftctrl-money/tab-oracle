@@ -5,7 +5,7 @@ const crypto = require('crypto');
 
 const FEED_COUNT_SUBMISSION_SIZE = 10;
 
-async function submitProvPerformance (BC_NODE_URL, BC_PRICE_ORACLE_PRIVATE_KEY, BC_PRICE_ORACLE_MANAGER_CONTRACT, provMap) {
+async function submitProvPerformance (BC_NODE_URL, BC_PRICE_ORACLE_PROVIDER_PERFORMANCE_PRIVATE_KEY, BC_PRICE_ORACLE_MANAGER_CONTRACT, provMap) {
     try {
         const lastRunRec = await prisma.provider_performance.findFirst({
             orderBy: {
@@ -36,7 +36,7 @@ async function submitProvPerformance (BC_NODE_URL, BC_PRICE_ORACLE_PRIVATE_KEY, 
         }
 
         const provider = new ethers.JsonRpcProvider(BC_NODE_URL, undefined, {staticNetwork: true});
-        const signer = new ethers.Wallet(BC_PRICE_ORACLE_PRIVATE_KEY, provider);
+        const signer = new ethers.Wallet(BC_PRICE_ORACLE_PROVIDER_PERFORMANCE_PRIVATE_KEY, provider);
         let dateNow = new Date();
         let now = Math.floor(dateNow.getTime() / 1000);
 

@@ -408,7 +408,7 @@ async function signMedianPrice(userAddr, tab, price, timestamp, rpcUrl, priKey, 
     }
 }
 
-async function getSignedMedianPrice(BC_NODE_URL, BC_PRICE_ORACLE_PRIVATE_KEY, BC_PRICE_ORACLE_CONTRACT, userAddr, curr) {
+async function getSignedMedianPrice(BC_NODE_URL, BC_PRICE_ORACLE_SIGNER_PRIVATE_KEY, BC_PRICE_ORACLE_CONTRACT, userAddr, curr) {
     try {
         curr = curr.substring(0, 3).toUpperCase();
         const activeMedian = await prisma.active_median.findFirst({
@@ -443,7 +443,7 @@ async function getSignedMedianPrice(BC_NODE_URL, BC_PRICE_ORACLE_PRIVATE_KEY, BC
             peggedRateRec? peggedRateRec.rate: activeMedian.median_price.median_value,
             batch.timestamp,
             BC_NODE_URL,
-            BC_PRICE_ORACLE_PRIVATE_KEY,
+            BC_PRICE_ORACLE_SIGNER_PRIVATE_KEY,
             BC_PRICE_ORACLE_CONTRACT
         );
         let quotes = {};
@@ -475,8 +475,7 @@ function calcMovementDelta(_old, _new) {
 async function groupMedianPrices(
     NODE_ENV,
     BC_NODE_URL, 
-    BC_PRICE_ORACLE_PRIVATE_KEY, 
-    BC_KEEPER_PRIVATE_KEY, 
+    BC_TAB_FREEZER_PRIVATE_KEY, 
     BC_TAB_REGISTRY_CONTRACT, 
     NFT_STORAGE_API_KEY,
     configMap
@@ -536,8 +535,7 @@ async function groupMedianPrices(
         }
 
         const provider = new ethers.JsonRpcProvider(BC_NODE_URL, undefined, {staticNetwork: true});
-        const signer = new ethers.Wallet(BC_PRICE_ORACLE_PRIVATE_KEY, provider);
-        const keeperSigner = new ethers.Wallet(BC_KEEPER_PRIVATE_KEY, provider);
+        const freezerSigner = new ethers.Wallet(BC_TAB_FREEZER_PRIVATE_KEY, provider);
 
         const tabRegistryABI = [
             "function disableTab(bytes3) external",
@@ -618,7 +616,7 @@ async function groupMedianPrices(
                 let missedCount = tabRec.missing_count + 1;
                 if (missedCount >= 3 && tabRec.frozen == false) {
                     if (tabRec.is_tab)
-                        await submitTrx_tab(curr, 'disable', keeperSigner, BC_TAB_REGISTRY_CONTRACT, tabRegistryContract);
+                        await submitTrx_tab(curr, 'disable', freezerSigner, BC_TAB_REGISTRY_CONTRACT, tabRegistryContract);
                     tabRec = await prisma.tab_registry.update({
                         where: {
                             id: tabRec.id
@@ -648,7 +646,7 @@ async function groupMedianPrices(
                 if (tabRec.frozen) {
                     if ((tabRec.revival_count + 1) >= 3) {
                         if (tabRec.is_tab)
-                            await submitTrx_tab(tabRec.tab_name, 'enable', keeperSigner, BC_TAB_REGISTRY_CONTRACT, tabRegistryContract);
+                            await submitTrx_tab(tabRec.tab_name, 'enable', freezerSigner, BC_TAB_REGISTRY_CONTRACT, tabRegistryContract);
                         tabRec = await prisma.tab_registry.update({
                             where: {
                                 id: tabRec.id
