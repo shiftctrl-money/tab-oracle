@@ -544,7 +544,7 @@ async function groupMedianPrices(
         const tabRegistryContract = new ethers.Contract(
             BC_TAB_REGISTRY_CONTRACT,
             tabRegistryABI,
-            signer
+            freezerSigner
         );
 
         let priceMap = {};
