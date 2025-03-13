@@ -18,9 +18,9 @@ function bytes3ToString(arrBytes3) {
     return arrString;
 }
 
-function keccak256Bytes3(b3) {
-    return ethers.keccak256(ethers.toUtf8Bytes(b3));
-}
+// function keccak256Bytes3(b3) {
+//     return ethers.keccak256(ethers.toUtf8Bytes(b3));
+// }
 
 async function loadDBProvider() {
     const providers = await prisma.feed_provider.findMany();
@@ -357,7 +357,7 @@ async function cacheParamsJob (BC_NODE_URL, BC_PRICE_ORACLE_MANAGER_CONTRACT, BC
 
         let providerPromises = [];
         for(let n = 0; n < providerCount; n++)
-            providerPromises.push(Promise.resolve(oracleManagerContract.providerList(n)));
+            providerPromises.push(await oracleManagerContract.providerList(n));
 
         await Promise.all(providerPromises).then(async (results) => {
             for (let n = 0; n < providerCount; n++) {
@@ -472,7 +472,7 @@ async function cacheParamsJob (BC_NODE_URL, BC_PRICE_ORACLE_MANAGER_CONTRACT, BC
             if (peggedTabCount > 0) {
                 let pegPromises = [];
                 for(let n = 0; n < peggedTabCount; n++)
-                    pegPromises.push(Promise.resolve(tabRegistryContract.peggedTabList(n)));
+                    pegPromises.push(await tabRegistryContract.peggedTabList(n));
                 await Promise.all(pegPromises).then(async (pegResults) => {
                     for(let n = 0; n < peggedTabCount; n++) {
                         let bytes3PegTab = pegResults[n];
@@ -484,8 +484,8 @@ async function cacheParamsJob (BC_NODE_URL, BC_PRICE_ORACLE_MANAGER_CONTRACT, BC
                         });
                         if (!existedPeggedTab) {
                             await Promise.all([
-                                tabRegistryContract.peggedTabMap(keccak256Bytes3(bytes3PegTab)),
-                                tabRegistryContract.peggedTabPriceRatio(keccak256Bytes3(bytes3PegTab))
+                                tabRegistryContract.peggedTabMap(ethers.keccak256(bytes3PegTab)),
+                                tabRegistryContract.peggedTabPriceRatio(ethers.keccak256(bytes3PegTab))
                             ]).then(async (pegDetails) => {
                                 let pegToTab = pegDetails[0];
                                 let pegToRatio = BigInt(pegDetails[1]);
@@ -521,12 +521,12 @@ async function cacheParamsJob (BC_NODE_URL, BC_PRICE_ORACLE_MANAGER_CONTRACT, BC
             
             let tabPromises = [];
             for(let n = 0; n < activatedTabCount; n++)
-                tabPromises.push(Promise.resolve(tabRegistryContract.tabList(n)));
+                tabPromises.push( await tabRegistryContract.tabList(n));
 
             await Promise.all(tabPromises).then(async (tabResults) => {
                 let frozenPromises = [];
                 for(let n = 0; n < activatedTabCount; n++)
-                    frozenPromises.push(Promise.resolve(tabRegistryContract.frozenTabs(keccak256Bytes3(tabResults[n]))));
+                    frozenPromises.push( await tabRegistryContract.frozenTabs(ethers.keccak256(tabResults[n])) );
 
                 await Promise.all(frozenPromises).then(async (frozenResults) => {
                     for (let n = 0; n < activatedTabCount; n++) {
