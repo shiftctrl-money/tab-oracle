@@ -36,6 +36,7 @@ model feed_submission {
   json_content     String
   feed_provider    feed_provider @relation(fields: [feed_provider_id], references: [id], onDelete: NoAction, onUpdate: NoAction, map: "FK_FEED_PROV")
   price_pair       price_pair[]
+  wrapped_btc      wrapped_btc[]
 
   @@index([created_datetime, feed_provider_id], map: "feed_submission_created_datetime_idx")
 }
@@ -96,8 +97,8 @@ model median_batch {
 model median_price {
   id                 String          @id(map: "PK_MEDIAN_PRICE") @db.VarChar(100)
   median_batch_id    String          @db.VarChar(100)
-  base_currency      String          @db.Char(3)
-  pair_name          String          @db.Char(3)
+  base_currency      String          @db.VarChar(10)
+  pair_name          String          @db.VarChar(10)
   median_value       String          @db.VarChar(78)
   slot_0             String?         @db.VarChar(100)
   slot_1             String?         @db.VarChar(100)
@@ -124,7 +125,7 @@ model active_median {
   id              String        @id(map: "PK_ACTIVE_MEDIAN") @db.VarChar(100)
   last_updated    DateTime?     @db.Timestamp(6)
   median_price_id String?       @db.VarChar(100)
-  pair_name       String        @db.Char(3)
+  pair_name       String        @db.VarChar(10)
   median_price    median_price? @relation(fields: [median_price_id], references: [id], onDelete: NoAction, onUpdate: NoAction, map: "FK_MEDIAN_PRICE")
 
   @@index([last_updated(sort: Desc)])
@@ -137,4 +138,13 @@ model pegged_tab_registry {
   pegged_code  String @db.Char(8)
   peg_to_tab   String @db.Char(3)
   peg_to_ratio Int?
+}
+
+model wrapped_btc {
+  id                 String          @id(map: "PK_WRAPPED_BTC_PAIR") @db.VarChar(100)
+  feed_submission_id String          @db.VarChar(100)
+  dest_currency      String          @db.Char(3)
+  symbol             String          @db.VarChar(10)
+  price              String          @db.VarChar(78)
+  feed_submission    feed_submission @relation(fields: [feed_submission_id], references: [id], onDelete: NoAction, onUpdate: NoAction, map: "FK_WRAPPED_SUB")
 }

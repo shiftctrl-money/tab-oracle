@@ -83,14 +83,16 @@ async function saveFeeds (providerRec, jsonBody) {
             else
                 return {error: 'Invalid quotes item '+key};    
 
-            let tab = ethers.dataSlice(ethers.toUtf8Bytes(strTab), 0, 3); // bytes3 equivalent
+            // let tab = ethers.dataSlice(ethers.toUtf8Bytes(strTab), 0, 3); // bytes3 equivalent
 
             if (key.indexOf(USDBTC) > -1) {
                 // incoming USDBTC key is converted to USD tab
                 strTab = 'USD';                
                 price = btcusdRate / BigInt(appendZero(1, PRICISION_UNIT + PRICISION_UNIT - TOKEN_DECIMAL - TOKEN_DECIMAL));
-            } else // On PriceOracle contract, all prices are representing BTC/TAB rate.
+            } else {
+                 // BTC/TAB rate.
                 price = (btcusdRate * v2) / BigInt(appendZero(1, PRICISION_UNIT + (PRICISION_UNIT - TOKEN_DECIMAL)));
+            }
 
             if (price == 0) {
                 logger.error('Zero price on currency ' + strTab + '. v1: ' + v1 + ' v2: ' + v2 + ' btcusdRate: ' + btcusdRate.toString());
@@ -104,15 +106,41 @@ async function saveFeeds (providerRec, jsonBody) {
                 pair_name: strTab,
                 price: price.toString()
             });
-
             tabCount++;
         }
-
-        let newPrices = await prisma.price_pair.createMany({
+        await prisma.price_pair.createMany({
             data: pricePairRecs
             // skipDuplicates: true
         });
         logger.info('New submission id '+newSubmission.id+' tab count: '+tabCount);
+
+        let wrappedBTCRecs = [];
+        let tokens = jsonBody.data.tokens;
+        for (const key in tokens) {
+            let v1 = new Decimal(tokens[key]);
+            if (v1.isNaN())
+                return {error: 'Invalid token '+key};
+
+            let price = ethers.parseUnits(v1.toString(), TOKEN_DECIMAL);
+            if (price == 0) {
+                logger.error('Zero price on token ' + key + '. v1: ' + v1 + ' received value: '+tokens[key]);
+            } else {
+                wrappedBTCRecs.push({
+                    id: crypto.randomUUID(),
+                    feed_submission_id: newSubmission.id,
+                    dest_currency: 'USD',
+                    symbol: key,
+                    price: price.toString()
+                });
+                logger.info("Wrapped BTC token "+key+" price: "+price.toString());
+            }
+        }
+        if (wrappedBTCRecs.length > 0) {
+            await prisma.wrapped_btc.createMany({
+                data: wrappedBTCRecs
+            });
+            logger.info('Wrapped BTC count: '+wrappedBTCRecs.length);
+        }
 
         return {
             'provider': providerRec.pub_address,

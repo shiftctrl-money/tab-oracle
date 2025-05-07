@@ -113,7 +113,7 @@ app.get(`/api/v1/price_history/:curr`, async (req, res) => {
     logger.info('price_history request from ' + req.headers['x-real-ip']);
     const { curr } = req.params;
     if (auth.verifyApiKey(req.headers['x-api-token'], AUTH_SECRET, AUTH_IV, PRIVATE_TOKEN)) {
-        res.json(await medianPrice.getHistoricalPrices(curr, req.query.maxCount));
+        res.json(await medianPrice.getHistoricalPrices(curr, req.query.maxCount, req.query.reserveSymbol));
     } else {
         res.status(401).json(resError(AUTH_ERROR));
     }
@@ -135,7 +135,14 @@ app.get(`/api/v1/median_price/:userAddr/:curr`, async (req, res) => {
     logger.info('signed median_price request from ' + req.headers['x-real-ip']);
     const { userAddr, curr } = req.params;
     if (auth.verifyApiKey(req.headers['x-api-token'], AUTH_SECRET, AUTH_IV, PRIVATE_TOKEN)) {
-        res.json(await medianPrice.getSignedMedianPrice(BC_NODE_URL, BC_PRICE_ORACLE_SIGNER_PRIVATE_KEY, BC_PRICE_ORACLE_CONTRACT, userAddr, curr));
+        res.json(await medianPrice.getSignedMedianPrice(
+            BC_NODE_URL, 
+            BC_PRICE_ORACLE_SIGNER_PRIVATE_KEY, 
+            BC_PRICE_ORACLE_CONTRACT, 
+            userAddr, 
+            curr,
+            req.query.reserveSymbol
+        ));
     } else {
         res.status(401).json(resError(AUTH_ERROR));
     }

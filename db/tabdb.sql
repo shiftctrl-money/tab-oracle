@@ -56,6 +56,17 @@ CREATE TABLE tabdb.price_pair (
 	CONSTRAINT "PK_PRICE_PAIR" PRIMARY KEY (id)
 );
 
+DROP TABLE IF EXISTS tabdb.wrapped_btc;
+CREATE TABLE tabdb.wrapped_btc (
+	id character varying(100) NOT NULL,
+	feed_submission_id character varying(100) NOT NULL,
+	dest_currency CHAR(3) NOT NULL,
+	symbol character varying(10) NOT NULL,
+	price VARCHAR(78) NOT NULL,
+	CONSTRAINT "FK_WRAPPED_SUB" FOREIGN KEY (feed_submission_id) REFERENCES tabdb.feed_submission (id) MATCH FULL,
+	CONSTRAINT "PK_WRAPPED_BTC_PAIR" PRIMARY KEY (id)
+);
+
 DROP TABLE IF EXISTS tabdb.median_batch;
 CREATE TABLE tabdb.median_batch (
 	id character varying(100) NOT NULL,
@@ -70,8 +81,8 @@ DROP TABLE IF EXISTS tabdb.median_price;
 CREATE TABLE tabdb.median_price (
 	id character varying(100) NOT NULL,
 	median_batch_id character varying(100) NOT NULL,
-	base_currency CHAR(3) NOT NULL,
-	pair_name CHAR(3) NOT NULL,
+	base_currency character varying(10) NOT NULL,
+	pair_name character varying(10) NOT NULL,
 	median_value VARCHAR(78) NOT NULL,
 	slot_0 character varying(100),
 	slot_1 character varying(100),
@@ -97,7 +108,7 @@ CREATE TABLE tabdb.active_median (
 	id character varying(100) NOT NULL,
 	last_updated timestamp,
 	median_price_id character varying(100),
-	pair_name CHAR(3) NOT NULL,
+	pair_name character varying(10) NOT NULL,
 	CONSTRAINT "FK_MEDIAN_PRICE" FOREIGN KEY (median_price_id) REFERENCES tabdb.median_price (id) MATCH FULL,
 	CONSTRAINT "PK_ACTIVE_MEDIAN" PRIMARY KEY (id)
 );
@@ -147,3 +158,9 @@ CREATE INDEX median_price_pair_name_idx ON tabdb.median_price (pair_name);
 CREATE INDEX active_median_last_updated_idx ON tabdb.active_median (last_updated DESC);
 CREATE INDEX active_median_pair_name_idx ON tabdb.active_median (pair_name,last_updated DESC);
 CREATE INDEX feed_submission_created_datetime_idx ON tabdb.feed_submission (created_datetime,feed_provider_id);
+
+-- Patch: Wrapped BTC Token price feed / median prices
+ALTER TABLE tabdb.active_median ALTER COLUMN pair_name TYPE character varying(10) USING pair_name::character varying;
+ALTER TABLE tabdb.median_price ALTER COLUMN base_currency TYPE character varying(10) USING base_currency::character varying;
+ALTER TABLE tabdb.median_price ALTER COLUMN pair_name TYPE character varying(10) USING pair_name::character varying;
+CREATE INDEX wrapped_btc_symbol_idx ON tabdb.wrapped_btc (symbol,dest_currency);

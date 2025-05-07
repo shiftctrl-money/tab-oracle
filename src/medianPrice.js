@@ -3,16 +3,22 @@ const { prisma } = require('./prisma');
 const ethers = require('ethers');
 const crypto = require('crypto');
 const axios = require('axios');
+const { WRAPPED_BTC_RESERVE_SYMBOL } = require('./config');
 
 const MEDIUM_PRICE_VALIDITY_WITHIN_SEC = (60 * 5); // price is valid only if it is sent within 5 minutes
 const MEDIUM_POOL_SIZE = 9;
 const MEDIUM_MIN_FEED_COUNT = 3;
 const ZERO = 0n;
+const PRECISION = BigInt('10000000000000000000000000000');
 
 function getRandomInt(min, max) {
     min = Math.ceil(min);
     max = Math.floor(max);
     return Math.floor(Math.random() * (max - min) + min); // The maximum is exclusive and the minimum is inclusive
+}
+
+function getWrappedBTCReserves() {
+    return WRAPPED_BTC_RESERVE_SYMBOL.split(',');
 }
 
 function getMedianValue(values) {
@@ -30,6 +36,13 @@ function getMedianValue(values) {
             return values[midIndex].price;
         }
     }
+}
+
+// To calc. Wrapped BTC Token to Fiat rate
+function getAdjustedWrappedBTCTokenPrice(wrappedToUsd, btcToUsd, btcToFiat) {
+    if (btcToUsd == btcToFiat)
+        return wrappedToUsd;
+    return (BigInt(wrappedToUsd) * PRECISION / BigInt(btcToUsd) * BigInt(btcToFiat) / PRECISION).toString();
 }
 
 async function submitTrx_tab(strTab, strMode, signer, tabRegistryContractAddr, tabRegistryContract) {
@@ -84,18 +97,21 @@ async function uploadIPFS(NFT_STORAGE_API_KEY, jsonContent) {
     // return cid;
 }
 
-async function getHistoricalPrices(curr, maxCount) {
+async function getHistoricalPrices(curr, maxCount, reserveSymbol) {
     try {
         curr = curr.substring(0,3).toUpperCase();
         maxCount = parseInt(maxCount);
         if (!Number.isInteger(maxCount))
             maxCount = 10;
-        if (maxCount > 100)
-            maxCount = 100;
+        if (maxCount > 50)
+            maxCount = 50;
 
         const medianPrices = await prisma.median_price.findMany({
             take: maxCount,
             where: {
+                base_currency: {
+                    equals: 'BTC'
+                },
                 pair_name: {
                     equals: curr
                 }
@@ -122,9 +138,54 @@ async function getHistoricalPrices(curr, maxCount) {
         let records = [];
         for(let i=0; i < medianPrices.length; i++) {
             let r = medianPrices[i];
+            let strRate = '0';
+
+            if (curr.indexOf('USD') > -1 && reserveSymbol.indexOf('USD') > -1)
+                strRate = '1000000000000000000';
+            else if (reserveSymbol == 'BTC')
+                strRate = r.median_value;
+            else {
+                let btcusdRec = await prisma.median_price.findFirst({
+                    where: {
+                        base_currency: {
+                            equals:'BTC'
+                        },
+                        pair_name: {
+                            equals: 'USD'
+                        },
+                        median_batch_id: {
+                            equals: r.median_batch_id
+                        }
+                    }
+                });
+                let wrappedBTCRec = await prisma.median_price.findFirst({
+                    where: {
+                        base_currency: {
+                            equals: reserveSymbol
+                        },
+                        pair_name: {
+                            equals: 'USD'
+                        },
+                        median_batch_id: {
+                            equals: r.median_batch_id
+                        }
+                    }
+                });
+                if (btcusdRec && wrappedBTCRec) {
+                    strRate = getAdjustedWrappedBTCTokenPrice(
+                        wrappedBTCRec.median_value, 
+                        btcusdRec.median_value, 
+                        r.median_value
+                    );
+                } else {
+                    logger.error("No BTC/USD or Wrapped BTC Token rate. Median batch id: "+r.median_batch_id);
+                    strRate = r.median_value;
+                }
+            }
+
             records.push({
                 time: r.median_batch.created_datetime.getTime(),
-                rate: r.median_value,
+                rate: strRate,
                 provider_count: r.active_slot,
                 status: r.tab_status,
                 refresh: r.refresh_median,
@@ -144,11 +205,13 @@ async function getLiveMedianPrices(bRequiredDetails, bTabOnly, filterCurr, confi
     try {
         let dateNow = new Date();
         let now = BigInt(Math.floor(dateNow.getTime() / 1000));
+        let iDateSince = Number(now - configMap.inactivePeriod - BigInt((5 * 60)));
         let selectCondition = {
             last_updated: {
-                gte: new Date(Number(now - configMap.inactivePeriod - BigInt((5 * 60))))
+                gte: new Date(iDateSince)
             }
         };
+        let btcReserves = getWrappedBTCReserves();
         if (filterCurr) {
             filterCurr = filterCurr.substring(0,3).toUpperCase();
             let filterList = [];
@@ -158,6 +221,10 @@ async function getLiveMedianPrices(bRequiredDetails, bTabOnly, filterCurr, confi
                 filterList.push('USD');
                 filterList.push(filterCurr);
             }
+
+            for(let i=0; i < btcReserves.length; i++)
+                filterList.push(btcReserves[i]);
+
             selectCondition.pair_name = {
                 in: filterList
             }
@@ -189,6 +256,7 @@ async function getLiveMedianPrices(bRequiredDetails, bTabOnly, filterCurr, confi
         let batch = {};
         batch.timestamp = dateNow.getTime();
         let quotes = {};
+        let wrappedBTCTokens = {};
         let pair = '';
         
         for(let key in activeMedians) {
@@ -203,77 +271,85 @@ async function getLiveMedianPrices(bRequiredDetails, bTabOnly, filterCurr, confi
                 include:{
                     median_batch: true
                 }
-            })
-            pair = medianPrice.base_currency + curr;
-            let tabRec = await prisma.tab_registry.findFirst({
-                where: {
-                    tab_name: {
-                        equals: curr
-                    }
-                }
             });
-            if (bTabOnly) { // non-tab result is excluded
-                if (tabRec) {
-                    if (tabRec.is_tab == false)
+            if (btcReserves.indexOf(curr) > -1) {
+                wrappedBTCTokens[curr] = {
+                    'median': medianPrice.median_value,
+                    'last_updated': activeMedian.last_updated.getTime()
+                }
+            } else {
+                pair = medianPrice.base_currency + curr;
+                let tabRec = await prisma.tab_registry.findFirst({
+                    where: {
+                        tab_name: {
+                            equals: curr
+                        }
+                    }
+                });
+                if (bTabOnly) { // non-tab result is excluded
+                    if (tabRec) {
+                        if (tabRec.is_tab == false)
+                            continue;
+                    } else
                         continue;
-                } else
+                }
+                if (!tabRec)
                     continue;
-            }
-            if (!tabRec)
-                continue;
-            quotes[pair] = {
-                tab: {
-                    tab_code: tabRec.tab_code,
-                    tab_name: tabRec.tab_name,
-                    currency_name: tabRec.curr_name,
-                    is_clt_alt_del: tabRec.is_clt_alt_del,
-	                is_tab: tabRec.is_tab,
-	                missing_count: tabRec.missing_count,
-	                revival_count: tabRec.revival_count,
-	                frozen: tabRec.frozen,
-                    risk_penalty_per_frame: configMap[tabRec.tab_name]? Number(configMap[tabRec.tab_name].riskPenaltyPerFrame): 0,
-                    process_fee_rate: configMap[tabRec.tab_name]? Number(configMap[tabRec.tab_name].processFeeRate): 0,
-                    min_reserve_ratio: configMap[tabRec.tab_name]? Number(configMap[tabRec.tab_name].minReserveRatio): 0,
-                    liquidation_ratio: configMap[tabRec.tab_name]? Number(configMap[tabRec.tab_name].liquidationRatio): 0
-                },
-                median: medianPrice.median_value,
-                last_updated: activeMedian.last_updated.getTime(),
-                cid: medianPrice.median_batch.cid
-            }
-            if (bRequiredDetails) {
-                let detailList = [];
-                for (let n = 0; n < medianPrice.active_slot; n++) {
-                    let slotName = 'slot_' + n;
-                    let pricePairId = medianPrice[slotName];
-                    let pricePairRec = await prisma.price_pair.findUnique({
-                        where: {
-                            id: pricePairId
-                        },
-                        select: {
-                            price: true,
-                            feed_submission: {
-                                select: {
-                                    feed_provider: {
-                                        select: {
-                                            pub_address: true
+                quotes[pair] = {
+                    tab: {
+                        tab_code: tabRec.tab_code,
+                        tab_name: tabRec.tab_name,
+                        currency_name: tabRec.curr_name,
+                        is_clt_alt_del: tabRec.is_clt_alt_del,
+                        is_tab: tabRec.is_tab,
+                        missing_count: tabRec.missing_count,
+                        revival_count: tabRec.revival_count,
+                        frozen: tabRec.frozen,
+                        risk_penalty_per_frame: configMap[tabRec.tab_name]? Number(configMap[tabRec.tab_name].riskPenaltyPerFrame): 0,
+                        process_fee_rate: configMap[tabRec.tab_name]? Number(configMap[tabRec.tab_name].processFeeRate): 0,
+                        min_reserve_ratio: configMap[tabRec.tab_name]? Number(configMap[tabRec.tab_name].minReserveRatio): 0,
+                        liquidation_ratio: configMap[tabRec.tab_name]? Number(configMap[tabRec.tab_name].liquidationRatio): 0
+                    },
+                    median: medianPrice.median_value,
+                    last_updated: activeMedian.last_updated.getTime(),
+                    cid: medianPrice.median_batch.cid
+                }
+                if (bRequiredDetails) {
+                    let detailList = [];
+                    for (let n = 0; n < medianPrice.active_slot; n++) {
+                        let slotName = 'slot_' + n;
+                        let pricePairId = medianPrice[slotName];
+                        let pricePairRec = await prisma.price_pair.findUnique({
+                            where: {
+                                id: pricePairId
+                            },
+                            select: {
+                                price: true,
+                                feed_submission: {
+                                    select: {
+                                        feed_provider: {
+                                            select: {
+                                                pub_address: true
+                                            }
                                         }
                                     }
                                 }
                             }
-                        }
-                    });
-                    if (pricePairRec) {
-                        detailList[n] = {
-                            'provider': pricePairRec.feed_submission.feed_provider.pub_address,
-                            'quote': pricePairRec.price
+                        });
+                        if (pricePairRec) {
+                            detailList[n] = {
+                                'provider': pricePairRec.feed_submission.feed_provider.pub_address,
+                                'quote': pricePairRec.price
+                            }
                         }
                     }
+                    quotes[pair].details = detailList;
                 }
-                quotes[pair].details = detailList;
             }
         }
         batch.data = {
             'popular_tabs': configMap.popularTabs,
+            'wrapped_BTC_tokens': wrappedBTCTokens,
             'quotes': quotes
         };
         return batch;
@@ -408,9 +484,18 @@ async function signMedianPrice(userAddr, tab, price, timestamp, rpcUrl, priKey, 
     }
 }
 
-async function getSignedMedianPrice(BC_NODE_URL, BC_PRICE_ORACLE_SIGNER_PRIVATE_KEY, BC_PRICE_ORACLE_CONTRACT, userAddr, curr) {
+async function getSignedMedianPrice(
+    BC_NODE_URL, 
+    BC_PRICE_ORACLE_SIGNER_PRIVATE_KEY, 
+    BC_PRICE_ORACLE_CONTRACT, 
+    userAddr, 
+    curr, 
+    reserveSymbol
+) {
     try {
         curr = curr.substring(0, 3).toUpperCase();
+        if (!reserveSymbol)
+            reserveSymbol = 'CBBTC';
         const activeMedian = await prisma.active_median.findFirst({
             where: {
                 pair_name: {
@@ -435,12 +520,55 @@ async function getSignedMedianPrice(BC_NODE_URL, BC_PRICE_ORACLE_SIGNER_PRIVATE_
                 activeMedian = peggedRateRec.median;
         }
         
+        // Retrieve Wrapped BTC Token rate
+        const wrappedReserve = await prisma.active_median.findFirst({
+            where: {
+                pair_name: {
+                    equals: reserveSymbol
+                }
+            },
+            orderBy: {
+                last_updated: 'desc'
+            },
+            include: {
+                median_price: true
+            }
+        });
+        if (!wrappedReserve)
+            return { error: 'No wrapped BTC reserve token: '+reserveSymbol };
+        let btcUsdRate = 0;
+        if (curr == 'USD')
+            btcUsdRate = activeMedian.median_price.median_value;
+        else {
+            const btcusd = await prisma.active_median.findFirst({
+                where: {
+                    pair_name: {
+                        equals: 'USD'
+                    }
+                },
+                orderBy: {
+                    last_updated: 'desc'
+                },
+                include: {
+                    median_price: true
+                }
+            });
+            if (!btcusd)
+                return { error: 'No BTC/USD rate' };
+            btcUsdRate = btcusd.median_price.median_value;
+        }
+
         let batch = {};
         batch.timestamp = activeMedian.last_updated.getTime();
+        const wrappedBTCToTab = getAdjustedWrappedBTCTokenPrice(
+            wrappedReserve.median_price.median_value, 
+            btcUsdRate, 
+            peggedRateRec? peggedRateRec.rate: activeMedian.median_price.median_value
+        );
         const price_signature = await signMedianPrice(
             userAddr,
             ethers.dataSlice(ethers.toUtf8Bytes(curr), 0, 3),
-            peggedRateRec? peggedRateRec.rate: activeMedian.median_price.median_value,
+            wrappedBTCToTab,
             batch.timestamp,
             BC_NODE_URL,
             BC_PRICE_ORACLE_SIGNER_PRIVATE_KEY,
@@ -449,7 +577,9 @@ async function getSignedMedianPrice(BC_NODE_URL, BC_PRICE_ORACLE_SIGNER_PRIVATE_
         let quotes = {};
         let pairName = peggedRateRec? ('BTC'+curr): ('BTC'+activeMedian.pair_name);
         quotes[pairName] = {
-            'median': peggedRateRec? peggedRateRec.rate: activeMedian.median_price.median_value,
+            'reserveSymbol': reserveSymbol,
+            'median': wrappedBTCToTab,
+            'btcToTab': peggedRateRec? peggedRateRec.rate: activeMedian.median_price.median_value,
             'signed': price_signature
         };
         batch.data = {
@@ -512,7 +642,8 @@ async function groupMedianPrices(
         fs2.id = pp.feed_submission_id 
         and fs2.created_datetime > ${lastExecDateTime} and pp.base_currency ='BTC' 
         and fp.id = fs2.feed_provider_id 
-        order by pp.pair_name, fs2.created_datetime desc, TO_NUMBER(pp.price, '999999999999999999999999999999999999999999999999999999999999999999999999999999');`
+    order by 
+        pp.pair_name, fs2.created_datetime desc, TO_NUMBER(pp.price, '999999999999999999999999999999999999999999999999999999999999999999999999999999');`
 
         if (recs.length == 0) {
             logger.error("No price data valid within " + validWithin);
@@ -582,7 +713,50 @@ async function groupMedianPrices(
                 i = i - 1; // stay in same row on next loop
             }
         }
+
+        // Wrapped BTC Tokens
+        let wrappedRecs = await prisma.$queryRaw`select
+        fs2.feed_provider_id,
+        wb.id,
+        wb.symbol,
+        wb.price 
+    from
+        feed_submission fs2,
+        wrapped_btc wb
+    where
+        fs2.id = wb.feed_submission_id 
+        and fs2.created_datetime > ${lastExecDateTime} and wb.dest_currency ='USD' 
+    order by 
+        wb.symbol, fs2.created_datetime desc, TO_NUMBER(wb.price, '999999999999999999999999999999999999999999999999999999999999999999999999999999');`
         
+        uniqProv = {};
+        curr = wrappedRecs[0].symbol;
+        logger.info("Preparing to loop "+wrappedRecs.length+" wrapped BTC records.");
+        for (let i = 0; i < wrappedRecs.length; i++) {
+            if (curr == wrappedRecs[i].symbol) {
+                if (uniqProv[wrappedRecs[i].feed_provider_id]) // each currency price must be supplied by unique provider in current session window
+                    continue;
+                else
+                    uniqProv[wrappedRecs[i].feed_provider_id] = 1;
+
+                if (priceMap[curr] == undefined) {
+                    priceMap[curr] = [{
+                        'price': BigInt(wrappedRecs[i].price),
+                        'pairPriceId': wrappedRecs[i].id
+                    }];
+                } else {
+                    priceMap[curr].push({
+                        'price': BigInt(wrappedRecs[i].price),
+                        'pairPriceId': wrappedRecs[i].id
+                    });
+                }
+            } else {
+                uniqProv = {};
+                curr = wrappedRecs[i].symbol;
+                i = i - 1; // stay in same row on next loop
+            }
+        }
+
         // loop all currencies: if feed count is less than MEDIUM_MIN_FEED_COUNT consecutively, disable corresponding Tab
         let tabStatus = 'A'; // A:Active, R:Recovering, F:Frozen, M:Missed
         let c = 0;
@@ -596,7 +770,7 @@ async function groupMedianPrices(
                     }
                 }
             });
-            if (!tabRec) {
+            if (!tabRec && curr.length == 3) {
                 tabRec = await prisma.tab_registry.create({
                     data: {
                         id: crypto.randomUUID(),
@@ -612,77 +786,79 @@ async function groupMedianPrices(
                 logger.info("created new tab_registry "+tabRec.id+" curr: "+curr);
             }
           
-            if (priceMap[curr].length < MEDIUM_MIN_FEED_COUNT) { // e.g. pool size < 3, NOT acceptable
-                let missedCount = tabRec.missing_count + 1;
-                if (missedCount >= 3 && tabRec.frozen == false) {
-                    if (tabRec.is_tab)
-                        await submitTrx_tab(curr, 'disable', freezerSigner, BC_TAB_REGISTRY_CONTRACT, tabRegistryContract);
-                    tabRec = await prisma.tab_registry.update({
-                        where: {
-                            id: tabRec.id
-                        },
-                        data: {
-                            missing_count: missedCount,
-                            revival_count: 0,
-                            frozen: true
-                        }
-                    });
-                    tabStatus = 'F';
-                    logger.info("Tab Registry record is updated(frozen): " + tabRec.id);
-                }
-                else {
-                    tabRec = await prisma.tab_registry.update({
-                        where: {
-                            id: tabRec.id
-                        },
-                        data: {
-                            missing_count: missedCount,
-                            revival_count: 0
-                        }
-                    });
-                    tabStatus = 'M';
-                }
-            } else { // pool size >= 3
-                if (tabRec.frozen) {
-                    if ((tabRec.revival_count + 1) >= 3) {
+            if (curr.length == 3) {
+                if (priceMap[curr].length < MEDIUM_MIN_FEED_COUNT) { // e.g. pool size < 3, NOT acceptable
+                    let missedCount = tabRec.missing_count + 1;
+                    if (missedCount >= 3 && tabRec.frozen == false) {
                         if (tabRec.is_tab)
-                            await submitTrx_tab(tabRec.tab_name, 'enable', freezerSigner, BC_TAB_REGISTRY_CONTRACT, tabRegistryContract);
+                            await submitTrx_tab(curr, 'disable', freezerSigner, BC_TAB_REGISTRY_CONTRACT, tabRegistryContract);
                         tabRec = await prisma.tab_registry.update({
                             where: {
                                 id: tabRec.id
                             },
                             data: {
-                                missing_count: 0,
+                                missing_count: missedCount,
                                 revival_count: 0,
-                                frozen: false
+                                frozen: true
                             }
                         });
-                        tabStatus = 'A';
-                        logger.info("Frozen tab is revived, " + tabRec.id);
+                        tabStatus = 'F';
+                        logger.info("Tab Registry record is updated(frozen): " + tabRec.id);
+                    }
+                    else {
+                        tabRec = await prisma.tab_registry.update({
+                            where: {
+                                id: tabRec.id
+                            },
+                            data: {
+                                missing_count: missedCount,
+                                revival_count: 0
+                            }
+                        });
+                        tabStatus = 'M';
+                    }
+                } else { // pool size >= 3
+                    if (tabRec.frozen) {
+                        if ((tabRec.revival_count + 1) >= 3) {
+                            if (tabRec.is_tab)
+                                await submitTrx_tab(tabRec.tab_name, 'enable', freezerSigner, BC_TAB_REGISTRY_CONTRACT, tabRegistryContract);
+                            tabRec = await prisma.tab_registry.update({
+                                where: {
+                                    id: tabRec.id
+                                },
+                                data: {
+                                    missing_count: 0,
+                                    revival_count: 0,
+                                    frozen: false
+                                }
+                            });
+                            tabStatus = 'A';
+                            logger.info("Frozen tab is revived, " + tabRec.id);
+                        } else {
+                            tabRec = await prisma.tab_registry.update({
+                                where: {
+                                    id: tabRec.id
+                                },
+                                data: {
+                                    revival_count: tabRec.revival_count + 1
+                                }
+                            });
+                            tabStatus = 'R';
+                        }
                     } else {
                         tabRec = await prisma.tab_registry.update({
                             where: {
                                 id: tabRec.id
                             },
                             data: {
-                                revival_count: tabRec.revival_count + 1
+                                missing_count: 0,
+                                revival_count: 0
                             }
                         });
-                        tabStatus = 'R';
+                        tabStatus = 'A';
                     }
-                } else {
-                    tabRec = await prisma.tab_registry.update({
-                        where: {
-                            id: tabRec.id
-                        },
-                        data: {
-                            missing_count: 0,
-                            revival_count: 0
-                        }
-                    });
-                    tabStatus = 'A';
-                }
-            }// healthy provider count, poolSize > 3
+                }// healthy provider count, poolSize > 3
+            }
 
             // sort price elements
             priceMap[curr].sort(
@@ -715,15 +891,20 @@ async function groupMedianPrices(
             let priceData = {};
             priceData.id = crypto.randomUUID();
             priceData.median_batch_id = median_batch.id;
-            priceData.base_currency = 'BTC';
-            priceData.pair_name = curr;
+            if (curr.length == 3) {
+                priceData.base_currency = 'BTC';
+                priceData.pair_name = curr;
+            } else { // wrapped BTC token
+                priceData.base_currency = curr;
+                priceData.pair_name = 'USD';
+            }
             priceData.median_value = getMedianValue(priceMap[curr]).toString();
             for (let n = 0; n < priceMap[curr].length; n++) { // fill up DB slot fields, up to 9 fields
                 priceData['slot_' + n] = priceMap[curr][n]['pairPriceId'];
             }
             priceData.active_slot = priceMap[curr].length;
             priceData.tab_status = tabStatus;
-            if (tabRec.is_tab) { // insert placeholder zero value to submit on-chain (fill up array size of 9)
+            if (tabRec && tabRec.is_tab) { // insert placeholder zero value to submit on-chain (fill up array size of 9)
                 if (priceMap[curr].length < MEDIUM_POOL_SIZE) {
                     for (var n = 0; n < MEDIUM_POOL_SIZE - priceData.active_slot; n++) {
                         priceMap[curr].push({
