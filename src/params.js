@@ -261,6 +261,16 @@ async function cacheTopVaultJob(BC_NODE_URL, BC_VAULT_MANAGER_CONTRACT) {
                 'vault_reserve_qty': 0
             };
         }
+        sortedList[3] = {
+            'vault_tab': 'TRY',
+            'vault_count': 0,
+            'vault_reserve_qty': 0
+        };
+        sortedList[4] = {
+            'vault_tab': 'ARS',
+            'vault_count': 0,
+            'vault_reserve_qty': 0
+        };
         for(let i =0; i < sortedList.length; i++) {
             sortedList[i].vault_count = sortedList[i].vault_count.toString();
             sortedList[i].vault_reserve_qty = sortedList[i].vault_reserve_qty.toString();

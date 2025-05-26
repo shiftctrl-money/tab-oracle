@@ -2,7 +2,7 @@ const logger = require('./logger');
 const { prisma } = require('./prisma');
 const ethers = require('ethers');
 const crypto = require('crypto');
-const axios = require('axios');
+// const axios = require('axios');
 const { WRAPPED_BTC_RESERVE_SYMBOL } = require('./config');
 
 const MEDIUM_PRICE_VALIDITY_WITHIN_SEC = (60 * 5); // price is valid only if it is sent within 5 minutes
