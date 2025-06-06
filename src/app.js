@@ -231,7 +231,7 @@ async function main() {
         });
 
         // every 6 hours, e.g. 6.01, 12.01, 18.01
-        cron.schedule('1 */6 * * *', async () => {
+        cron.schedule('2 */6 * * *', async () => {
             await providerPerformanceJob.submitProvPerformance(
                 BC_NODE_URL, 
                 BC_PRICE_ORACLE_PROVIDER_PERFORMANCE_PRIVATE_KEY, 
@@ -250,9 +250,9 @@ async function main() {
     }
 
     // every 24 hours, e.g. every 00:02
-    cron.schedule('2 */24 * * *', async () => {
-        await params.retrieveAndSaveCurrencySymbols(CURR_DETAILS);
-    });
+    // cron.schedule('2 */24 * * *', async () => {
+    //     await params.retrieveAndSaveCurrencySymbols(CURR_DETAILS);
+    // });
 }
 
 main();
