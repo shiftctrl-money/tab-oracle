@@ -141,7 +141,8 @@ app.get(`/api/v1/median_price/:userAddr/:curr`, async (req, res) => {
             BC_PRICE_ORACLE_CONTRACT, 
             userAddr, 
             curr,
-            req.query.reserveSymbol
+            req.query.reserveSymbol,
+            req.query.reserveAddr
         ));
     } else {
         res.status(401).json(resError(AUTH_ERROR));

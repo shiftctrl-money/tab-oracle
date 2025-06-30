@@ -410,7 +410,7 @@ async function getPeggedTabs() {
     return tabs;
 }
 
-async function signMedianPrice(userAddr, tab, price, timestamp, rpcUrl, priKey, priceOracleAddr) {
+async function signMedianPrice(userAddr, reserveAddr, tab, price, timestamp, rpcUrl, priKey, priceOracleAddr) {
     const provider = new ethers.JsonRpcProvider(rpcUrl, undefined, {staticNetwork: true});
     const chainId = (await provider.getNetwork()).chainId;
     const signer = new ethers.Wallet(priKey, provider); // PriceOracle.FEEDER_ROLE holder
@@ -432,18 +432,6 @@ async function signMedianPrice(userAddr, tab, price, timestamp, rpcUrl, priKey, 
     const types = {
         UpdatePriceData: [
             {
-                name: "owner",  // owner of tab oracle price update role
-                type: "address"
-            },
-            {
-                name: "updater", // user who spend gas to update price
-                type: "address"
-            },
-            {
-                name: "tab",
-                type: "bytes3"
-            },
-            {
                 name: "price",
                 type: "uint256"
             },
@@ -452,17 +440,35 @@ async function signMedianPrice(userAddr, tab, price, timestamp, rpcUrl, priKey, 
                 type: "uint256"
             },
             {
+                name: "owner",  // holder of tab oracle price update role
+                type: "address"
+            },
+            {
+                name: "updater", // user who spend gas to update price
+                type: "address"
+            },
+            {
+                name: "reserve",
+                type: "address"
+            },
+            {
+                name: "tab",
+                type: "bytes3"
+            },
+            
+            {
                 name: "nonce",
                 type: "uint256"
             }
         ],
     };
     const values = {
-        owner: signer.address,
-        updater: userAddr,
-        tab: tab,
         price: price,
         timestamp: timestamp,
+        owner: signer.address,
+        updater: userAddr,
+        reserve: reserveAddr,
+        tab: tab,
         nonce: nonces.toString()
     };
     const signature = await signer.signTypedData(domain, types, values);
@@ -471,11 +477,12 @@ async function signMedianPrice(userAddr, tab, price, timestamp, rpcUrl, priKey, 
     // console.log("recovered: "+recovered);
     
     return {
-        owner: signer.address,
-        updater: userAddr,
-        tab: tab,
         price: price,
         timestamp: timestamp,
+        owner: signer.address,
+        updater: userAddr,
+        reserve: reserveAddr,
+        tab: tab,
         nonce: nonces.toString(),
         signature: signature,
         v: sig.v,
@@ -490,7 +497,8 @@ async function getSignedMedianPrice(
     BC_PRICE_ORACLE_CONTRACT, 
     userAddr, 
     curr, 
-    reserveSymbol
+    reserveSymbol,
+    reserveAddr
 ) {
     try {
         curr = curr.substring(0, 3).toUpperCase();
@@ -518,6 +526,11 @@ async function getSignedMedianPrice(
                 return { error: 'No data' };
             else
                 activeMedian = peggedRateRec.median;
+        }
+
+        if (ethers.isAddress(reserveAddr) == false) {
+            logger.error("Invalid reserveAddr");
+            return { error: 'Invalid reserveAddr' };
         }
         
         // Retrieve Wrapped BTC Token rate
@@ -567,6 +580,7 @@ async function getSignedMedianPrice(
         );
         const price_signature = await signMedianPrice(
             userAddr,
+            reserveAddr,
             ethers.dataSlice(ethers.toUtf8Bytes(curr), 0, 3),
             wrappedBTCToTab,
             batch.timestamp,
