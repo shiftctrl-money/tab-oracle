@@ -141,7 +141,7 @@ async function cacheTopVaultJob(BC_NODE_URL, BC_VAULT_MANAGER_CONTRACT) {
         let vaultManagerContractABI = [
             'function getOwnerList() external view returns(address[] memory)',
             'function getAllVaultIDByOwner(address) external view returns(uint256[] memory)',
-            'function vaults(address,uint256) external view returns(address,uint256,address,uint256,uint256,uint256)'
+            'function vaults(address,uint256) external view returns(uint256,address,uint256,address,uint256,uint256,uint256)'
         ];
         let vaultManagerContract = new ethers.Contract(
             BC_VAULT_MANAGER_CONTRACT,
@@ -167,15 +167,15 @@ async function cacheTopVaultJob(BC_NODE_URL, BC_VAULT_MANAGER_CONTRACT) {
                 for(let j=0; j < results.length; j++) { // each vault belongs to current owner
                     let v = results[j];
                     let tab = '';
-                    if (addrTabMap[v[2]] == undefined) { // retrieve tab code(bytes3) of this vault
+                    if (addrTabMap[v[3]] == undefined) { // retrieve tab code(bytes3) of this vault
                         let tabContract = new ethers.Contract(
-                            v[2],
+                            v[3],
                             tabContractABI,
                             provider
                         );
                         tab = ethers.toUtf8String(await tabContract.tabCode());
-                        addrTabMap[v[2]] = tab;
-                        console.log("Tab "+tab+" address "+v[2]);
+                        addrTabMap[v[3]] = tab;
+                        console.log("Tab "+tab+" address "+v[3]);
                     } else {
                         tab = addrTabMap[v[2]];
                     }
@@ -183,12 +183,12 @@ async function cacheTopVaultJob(BC_NODE_URL, BC_VAULT_MANAGER_CONTRACT) {
                         topMap[tab] = {
                             'vault_tab': tab,
                             'vault_count': 1,
-                            'vault_reserve_qty': BigInt(v[1]) // reserveAmt
+                            'vault_reserve_qty': BigInt(v[2]) // reserveAmt
                         };
                     } else {
                         topMap[tab].vault_tab = tab;
                         topMap[tab].vault_count = topMap[tab].vault_count + 1;
-                        topMap[tab].vault_reserve_qty = topMap[tab].vault_reserve_qty + BigInt(v[1])
+                        topMap[tab].vault_reserve_qty = topMap[tab].vault_reserve_qty + BigInt(v[2])
                     }
                 }
             }).catch((e) => {

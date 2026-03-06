@@ -410,10 +410,10 @@ async function getPeggedTabs() {
     return tabs;
 }
 
-async function signMedianPrice(userAddr, reserveAddr, tab, price, timestamp, rpcUrl, priKey, priceOracleAddr) {
+async function signMedianPrice(userAddr, userChainId, tab, price, timestamp, rpcUrl, priKey, priceOracleAddr) {
     const provider = new ethers.JsonRpcProvider(rpcUrl, undefined, {staticNetwork: true});
-    const chainId = (await provider.getNetwork()).chainId;
-    const signer = new ethers.Wallet(priKey, provider); // PriceOracle.FEEDER_ROLE holder
+    const chainId = (await provider.getNetwork()).chainId; // zeta chain id
+    const signer = new ethers.Wallet(priKey, provider); // PriceOracle.SIGNER_ROLE holder
     const priceOracleABI = [
         "function nonces(address) external view returns (uint256)"
     ];
@@ -432,6 +432,22 @@ async function signMedianPrice(userAddr, reserveAddr, tab, price, timestamp, rpc
     const types = {
         UpdatePriceData: [
             {
+                name: "signer",
+                type: "address"
+            },
+            {
+                name: "updater", // user who spend gas to update price
+                type: "address"
+            },
+            {
+                name: "chainID",
+                type: "uint256"
+            },
+            {
+                name: "tab", 
+                type: "bytes3"
+            },
+            {
                 name: "price",
                 type: "uint256"
             },
@@ -440,54 +456,64 @@ async function signMedianPrice(userAddr, reserveAddr, tab, price, timestamp, rpc
                 type: "uint256"
             },
             {
-                name: "owner",  // holder of tab oracle price update role
-                type: "address"
-            },
-            {
-                name: "updater", // user who spend gas to update price
-                type: "address"
-            },
-            {
-                name: "reserve",
-                type: "address"
-            },
-            {
-                name: "tab",
-                type: "bytes3"
-            },
-            
-            {
                 name: "nonce",
                 type: "uint256"
             }
         ],
     };
     const values = {
+        signer: signer.address,
+        updater: userAddr,
+        chainID: userChainId,
+        tab: tab,
         price: price,
         timestamp: timestamp,
-        owner: signer.address,
-        updater: userAddr,
-        reserve: reserveAddr,
-        tab: tab,
         nonce: nonces.toString()
     };
     const signature = await signer.signTypedData(domain, types, values);
     const sig = ethers.Signature.from(signature);
     // const recovered = ethers.verifyTypedData(domain, types, values, sig);
     // console.log("recovered: "+recovered);
-    
     return {
+        signer: signer.address,
+        updater: userAddr,
+        chainID: userChainId,
+        tab: tab,
         price: price,
         timestamp: timestamp,
-        owner: signer.address,
-        updater: userAddr,
-        reserve: reserveAddr,
-        tab: tab,
         nonce: nonces.toString(),
         signature: signature,
         v: sig.v,
         r: sig.r,
         s: sig.s
+    }
+}
+
+async function getActiveMedian(curr) {
+    const activeMedian = await prisma.active_median.findFirst({
+        where: {
+            pair_name: {
+                equals: curr
+            }
+        },
+        orderBy: {
+            last_updated: 'desc'
+        },
+        include: {
+            median_price: true
+        }
+    });
+
+    if (activeMedian)
+        return { 'activeMedian': activeMedian, 'peggedRateRec': null};
+    else {
+        let peggedRateRec;
+        // Calculate pegged rate if it is pegged tab
+        peggedRateRec = getPeggedRate(curr);
+        if (peggedRateRec.rate == 0)
+            return { error: 'No data' };
+        else
+            return { 'activeMedian': peggedRateRec.median, 'peggedRateRec': peggedRateRec};
     }
 }
 
@@ -497,92 +523,25 @@ async function getSignedMedianPrice(
     BC_PRICE_ORACLE_CONTRACT, 
     userAddr, 
     curr, 
-    reserveSymbol,
-    reserveAddr
+    userChainId
 ) {
     try {
         curr = curr.substring(0, 3).toUpperCase();
-        if (!reserveSymbol)
-            reserveSymbol = 'CBBTC';
-        const activeMedian = await prisma.active_median.findFirst({
-            where: {
-                pair_name: {
-                    equals: curr
-                }
-            },
-            orderBy: {
-                last_updated: 'desc'
-            },
-            include: {
-                median_price: true
-            }
-        });
-
-        let peggedRateRec;
-        if (!activeMedian) {
-            // Calculate pegged rate if it is pegged tab
-            peggedRateRec = getPeggedRate(curr);
-            if (peggedRateRec.rate == 0)
-                return { error: 'No data' };
-            else
-                activeMedian = peggedRateRec.median;
-        }
-
-        if (ethers.isAddress(reserveAddr) == false) {
-            logger.error("Invalid reserveAddr");
-            return { error: 'Invalid reserveAddr' };
-        }
+        let acMedian = await getActiveMedian(curr);
+        if (acMedian.error)
+            return acMedian;
         
-        // Retrieve Wrapped BTC Token rate
-        const wrappedReserve = await prisma.active_median.findFirst({
-            where: {
-                pair_name: {
-                    equals: reserveSymbol
-                }
-            },
-            orderBy: {
-                last_updated: 'desc'
-            },
-            include: {
-                median_price: true
-            }
-        });
-        if (!wrappedReserve)
-            return { error: 'No wrapped BTC reserve token: '+reserveSymbol };
-        let btcUsdRate = 0;
-        if (curr == 'USD')
-            btcUsdRate = activeMedian.median_price.median_value;
-        else {
-            const btcusd = await prisma.active_median.findFirst({
-                where: {
-                    pair_name: {
-                        equals: 'USD'
-                    }
-                },
-                orderBy: {
-                    last_updated: 'desc'
-                },
-                include: {
-                    median_price: true
-                }
-            });
-            if (!btcusd)
-                return { error: 'No BTC/USD rate' };
-            btcUsdRate = btcusd.median_price.median_value;
-        }
-
+        const activeMedian = acMedian.activeMedian;
+        const peggedRateRec = acMedian.peggedRateRec;
+        
         let batch = {};
         batch.timestamp = activeMedian.last_updated.getTime();
-        const wrappedBTCToTab = getAdjustedWrappedBTCTokenPrice(
-            wrappedReserve.median_price.median_value, 
-            btcUsdRate, 
-            peggedRateRec? peggedRateRec.rate: activeMedian.median_price.median_value
-        );
+        let price = peggedRateRec? peggedRateRec.rate: activeMedian.median_price.median_value;
         const price_signature = await signMedianPrice(
             userAddr,
-            reserveAddr,
+            userChainId,
             ethers.dataSlice(ethers.toUtf8Bytes(curr), 0, 3),
-            wrappedBTCToTab,
+            price,
             batch.timestamp,
             BC_NODE_URL,
             BC_PRICE_ORACLE_SIGNER_PRIVATE_KEY,
@@ -591,9 +550,7 @@ async function getSignedMedianPrice(
         let quotes = {};
         let pairName = peggedRateRec? ('BTC'+curr): ('BTC'+activeMedian.pair_name);
         quotes[pairName] = {
-            'reserveSymbol': reserveSymbol,
-            'median': wrappedBTCToTab,
-            'btcToTab': peggedRateRec? peggedRateRec.rate: activeMedian.median_price.median_value,
+            'median': price,
             'signed': price_signature
         };
         batch.data = {
@@ -1107,9 +1064,144 @@ async function groupMedianPrices(
     }
 };
 
+function scaleUp(value, fromDecimal, toDecimal) {
+    if (toDecimal > fromDecimal) {
+        let decimalDiff = toDecimal - fromDecimal;
+        return BigInt(value) * (BigInt(10) ** BigInt(decimalDiff));
+    }
+    return BigInt(value);
+}
+
+async function getDepositSwapDetails(
+    BC_NODE_URL, 
+    BC_UNI_V2_ROUTER_CONTRACT,
+    BC_BTCBTC_TOKEN, 
+    BC_VAULT_UTILS_CONTRACT, 
+    BC_ZUNITAB_CONTRACT,
+    configMap,
+    destChainId, 
+    destToken,
+    targetToken,
+    targetTokenDecimal,
+    curr,
+    fromToken,
+    fromAmount,
+    fromTokenDecimal,
+    reserveRatio
+) {
+    try {
+        const provider = new ethers.JsonRpcProvider(BC_NODE_URL, undefined, {staticNetwork: true});
+        const vaultUtilsABI = [
+            "function getAmountsOut(address,address,address,uint256) external view returns (uint256)",
+            "function getAmountsIn(address,address,address,uint256,address) external view returns (uint256)"
+        ];
+        const vaultUtilsContract = new ethers.Contract(
+            BC_VAULT_UTILS_CONTRACT,
+            vaultUtilsABI,
+            provider
+        );
+        let amountInTodeduct = BigInt(0);
+        let mintFee = BigInt(0);
+        let destChain = Number(destChainId);
+        
+        // when destination chain is not zetachain, extra swap and gas is required
+        if (destChain != 7000 && destChain != 7001 && destChain != 31337) { // ZetaChain's mainnet, testnet, localnet
+            if (fromToken.toLowerCase() != destToken.toLowerCase()) {
+                logger.info("Non-Zeta destination chain, chainId: "+destChainId + ' fromToken: '+fromToken + " destToken: "+destToken);
+                amountInTodeduct = await vaultUtilsContract.getAmountsIn(
+                    BC_UNI_V2_ROUTER_CONTRACT,
+                    fromToken,
+                    destToken,
+                    0,  // receiveGasAmt: not supported yet
+                    BC_ZUNITAB_CONTRACT
+                );
+                if (amountInTodeduct > 0)
+                    mintFee = amountInTodeduct * 3n / 1000n; // 0.3% Swap Fee
+                else
+                    throw new Error("Failed destination fee estimation.");
+                logger.info("Estimated deduction amount: "+amountInTodeduct.toString() + " with mintFee: "+mintFee.toString());
+            }
+        }
+        let amountIn = BigInt(fromAmount) - amountInTodeduct;
+
+        let btcInput = fromToken.toLowerCase() == BC_BTCBTC_TOKEN.toLowerCase();
+        let receiveAmount = amountIn;
+        console.log("swap amount estimation. fromToken: "+fromToken+" targetToken: "+targetToken+" amountIn: "+amountIn+" btcInput: "+btcInput);
+
+        if (amountIn > 0) {
+            if (btcInput) { // BTC to target, e.g. withdrawReserve
+                if (targetToken.toLowerCase() != BC_BTCBTC_TOKEN.toLowerCase()) {
+                    receiveAmount = await vaultUtilsContract.getAmountsOut(
+                        BC_UNI_V2_ROUTER_CONTRACT,
+                        BC_BTCBTC_TOKEN,
+                        targetToken,
+                        amountIn
+                    );
+                    mintFee = mintFee + (amountIn * 3n / 1000n); // 0.3% Swap Fee
+                }
+            } else { // Asset to BTC, e.g. createVault, depositReserve
+                receiveAmount = await vaultUtilsContract.getAmountsOut(
+                    BC_UNI_V2_ROUTER_CONTRACT,
+                    fromToken,
+                    BC_BTCBTC_TOKEN,
+                    amountIn
+                );
+                mintFee = mintFee + (amountIn * 3n / 1000n); // 0.3% Swap Fee
+            }
+        }
+        
+        if (receiveAmount <= 0)
+            throw new Error("Failed swap amount estimation. fromToken: "+fromToken+" targetToken: "+targetToken+" amountIn: "+amountIn+" btcInput: "+btcInput);
+        logger.info("Estimated receiveAmount amount: "+receiveAmount.toString() + " mintFee: "+mintFee.toString());
+
+        curr = curr.substring(0, 3).toUpperCase();
+        let acMedian = await getActiveMedian(curr);
+        if (acMedian.error)
+            throw new Error(acMedian.error);
+        const activeMedian = acMedian.activeMedian;
+        const peggedRateRec = acMedian.peggedRateRec;
+        const btcPrice = peggedRateRec? peggedRateRec.rate: activeMedian.median_price.median_value
+        
+        let swapRate = scaleUp(receiveAmount, targetTokenDecimal, 26) / scaleUp(amountIn, fromTokenDecimal, 18); // in 8 decimals
+        let reserveValueInTab = BigInt(receiveAmount) * BigInt(btcPrice) / BigInt(10 ** 18); // in 8 decimals
+        let mintTabAmount = scaleUp(reserveValueInTab * BigInt(100) / BigInt(reserveRatio), 8, 18); // in 18 decimals
+        let minReserveRatio = BigInt(configMap[curr].minReserveRatio);
+        let riskPenalty = BigInt(configMap[curr].riskPenaltyPerFrame);
+        let liquidationRatio = BigInt(configMap[curr].liquidationRatio);
+        let riskPenaltyThreshold = mintTabAmount * minReserveRatio * BigInt('100000000') / BigInt(100) / receiveAmount; // in 18 decimals
+        let liquidationThreshold = mintTabAmount * liquidationRatio * BigInt('100000000') / BigInt(100) / receiveAmount; // in 18 decimals
+        
+        let res = {
+            'deductedFromAmount': amountInTodeduct.toString(),
+            'fromAmountB4Swap': amountIn.toString(),
+            'receiveAmount': receiveAmount.toString(),
+            'mintFee': mintFee.toString(),
+            'swapRate': swapRate.toString(),
+            'btcPrice': btcPrice.toString(),
+            'reserveValueInTab': reserveValueInTab.toString(),
+            'mintTabAmount': mintTabAmount.toString(),
+            'minReserveRatio': minReserveRatio.toString(),
+            'riskPenalty': riskPenalty.toString(),
+            'riskPenaltyThreshold': riskPenaltyThreshold.toString(),
+            'liquidationRatio': liquidationRatio.toString(),
+            'liquidationThreshold': liquidationThreshold.toString()
+        };
+        console.log(res);
+        return res;
+
+    } catch(error) {
+        logger.error(error);
+        if (error.message && error.message.length < 100) {
+            return { error: error.message };
+        }
+        return { error: 'Internal server error' };
+    }
+}
+
 exports.medianPrice = {
     getHistoricalPrices,
     getLiveMedianPrices,
     getSignedMedianPrice,
-    groupMedianPrices
+    groupMedianPrices,
+    getDepositSwapDetails
 }

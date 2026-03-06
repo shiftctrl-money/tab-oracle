@@ -12,6 +12,10 @@ const {
     BC_PRICE_ORACLE_CONTRACT,
     BC_CONFIG_CONTRACT,
     BC_VAULT_MANAGER_CONTRACT,
+    BC_UNI_V2_ROUTER_CONTRACT,
+    BC_VAULT_UTILS_CONTRACT,
+    BC_ZUNITAB_CONTRACT,
+    BC_BTCBTC_TOKEN,
     NFT_STORAGE_API_KEY,
     CURR_DETAILS,
     AUTH_SECRET,
@@ -141,8 +145,7 @@ app.get(`/api/v1/median_price/:userAddr/:curr`, async (req, res) => {
             BC_PRICE_ORACLE_CONTRACT, 
             userAddr, 
             curr,
-            req.query.reserveSymbol,
-            req.query.reserveAddr
+            req.query.userChainId
         ));
     } else {
         res.status(401).json(resError(AUTH_ERROR));
@@ -159,6 +162,33 @@ app.get(`/api/v1/feed_provider/list`, async (req, res) => {
     }
 });
 
+// Protected endpoint: retrieve zetachain's uniswap v2 swap and deposit details
+app.get(`/api/v1/estimate_deposit_swap`, async (req, res) => {
+    logger.info('estimate_deposit_swap request from ' + req.headers['x-real-ip']);
+    const { destChainId, destToken, targetToken, targetTokenDecimal, 
+            curr, fromToken, fromAmount, fromTokenDecimal, reserveRatio } = req.query;
+    if (auth.verifyApiKey(req.headers['x-api-token'], AUTH_SECRET, AUTH_IV, PRIVATE_TOKEN)) {
+        res.json(await medianPrice.getDepositSwapDetails(
+            BC_NODE_URL, 
+            BC_UNI_V2_ROUTER_CONTRACT,
+            BC_BTCBTC_TOKEN, 
+            BC_VAULT_UTILS_CONTRACT, 
+            BC_ZUNITAB_CONTRACT,
+            params.configMap,
+            destChainId, 
+            destToken,
+            targetToken,
+            targetTokenDecimal,
+            curr,
+            fromToken,
+            fromAmount,
+            fromTokenDecimal,
+            reserveRatio
+        ));
+    } else {
+        res.status(401).json(resError(AUTH_ERROR));
+    }
+});
 
 const server = app.listen(EXPRESS_PORT, () => {
     logger.info("tab-oracle is started, listen port: " + EXPRESS_PORT);
@@ -254,6 +284,7 @@ async function main() {
     // cron.schedule('2 */24 * * *', async () => {
     //     await params.retrieveAndSaveCurrencySymbols(CURR_DETAILS);
     // });
+
 }
 
 main();
